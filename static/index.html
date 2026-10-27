@@ -1,0 +1,3731 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>HisabAI — Aapki Dukaan Ka Smart Digital Bahi-Khata</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+Devanagari:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <style>
+    /* ==========================================================================
+       HISABAI DESIGN SYSTEM — DARK EMERALD FINANCIAL SAAS
+       ========================================================================== */
+    :root {
+      /* Brand Color Tokens */
+      --bg-obsidian: #111815;
+      --bg-surface: #18221D;
+      --bg-surface-elevated: #1F2D26;
+      --bg-input: #141C18;
+      --border-subtle: #26362E;
+      --border-accent: #21B573;
+      --border-focus: rgba(33, 181, 115, 0.4);
+
+      --forest-green: #173D30;
+      --emerald-primary: #21B573;
+      --emerald-hover: #1ca064;
+      --emerald-light: rgba(33, 181, 115, 0.12);
+      --emerald-glow: rgba(33, 181, 115, 0.25);
+
+      --warm-ivory: #F4F1E8;
+      --text-main: #F4F1E8;
+      --text-sub: #D1DCD5;
+      --text-muted: #A6B4AC;
+
+      /* Accounting Semantics */
+      --udhaar-red: #EF4444;
+      --udhaar-bg: rgba(239, 68, 68, 0.12);
+      --udhaar-border: rgba(239, 68, 68, 0.3);
+      --jama-green: #21B573;
+      --jama-bg: rgba(33, 181, 115, 0.12);
+      --jama-border: rgba(33, 181, 115, 0.3);
+
+      /* Radii & Shadows */
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 18px;
+      --radius-full: 9999px;
+      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+      --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.4);
+      --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
+      --shadow-emerald: 0 4px 20px rgba(33, 181, 115, 0.2);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg-obsidian);
+      color: var(--text-main);
+      line-height: 1.5;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    input, select, textarea, button {
+      font-family: inherit;
+    }
+
+    /* ==========================================================================
+       AUTHENTICATION SCREEN (INITIAL SCREEN IF NOT LOGGED IN)
+       ========================================================================== */
+    .auth-viewport {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+      position: relative;
+      background: radial-gradient(circle at top right, #173D30 0%, #111815 65%);
+      overflow: hidden;
+    }
+
+    /* Ambient glowing background orbs */
+    .auth-orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(80px);
+      pointer-events: none;
+      z-index: 1;
+    }
+    .auth-orb-1 {
+      width: 400px;
+      height: 400px;
+      background: rgba(33, 181, 115, 0.15);
+      top: -100px;
+      right: -100px;
+    }
+    .auth-orb-2 {
+      width: 320px;
+      height: 320px;
+      background: rgba(23, 61, 48, 0.4);
+      bottom: -60px;
+      left: -60px;
+    }
+
+    .auth-glass-card {
+      position: relative;
+      z-index: 10;
+      width: 100%;
+      max-width: 440px;
+      background: rgba(24, 34, 29, 0.75);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-top: 1px solid rgba(33, 181, 115, 0.3);
+      border-radius: var(--radius-lg);
+      padding: 36px 28px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), var(--shadow-emerald);
+      animation: authCardEnter 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes authCardEnter {
+      from { opacity: 0; transform: translateY(12px) scale(0.97); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .auth-brand-badge {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .auth-logo-icon {
+      width: 44px;
+      height: 44px;
+      background: linear-gradient(135deg, var(--emerald-primary), var(--forest-green));
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      box-shadow: 0 4px 12px rgba(33, 181, 115, 0.3);
+    }
+
+    .auth-brand-name {
+      font-size: 1.6rem;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      color: var(--warm-ivory);
+    }
+
+    .auth-brand-name span {
+      color: var(--emerald-primary);
+    }
+
+    .auth-heading {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--warm-ivory);
+      margin-bottom: 6px;
+      font-family: 'Noto Sans Devanagari', sans-serif;
+    }
+
+    .auth-subheading {
+      font-size: 0.86rem;
+      color: var(--text-muted);
+      margin-bottom: 24px;
+      line-height: 1.45;
+    }
+
+    /* Tab switcher for Login / Signup */
+    .auth-tabs-row {
+      display: flex;
+      background: var(--bg-input);
+      padding: 4px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-subtle);
+      margin-bottom: 24px;
+    }
+
+    .auth-tab-pill {
+      flex: 1;
+      padding: 10px;
+      background: transparent;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-align: center;
+    }
+
+    .auth-tab-pill.active {
+      background: var(--forest-green);
+      color: var(--warm-ivory);
+      border: 1px solid rgba(33, 181, 115, 0.3);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    }
+
+    .auth-form-group {
+      margin-bottom: 18px;
+    }
+
+    .auth-label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-sub);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+
+    .auth-input-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .auth-input {
+      width: 100%;
+      background: var(--bg-input);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 12px 14px;
+      color: var(--warm-ivory);
+      font-size: 0.95rem;
+      outline: none;
+      transition: all 0.2s ease;
+    }
+
+    .auth-input:focus {
+      border-color: var(--emerald-primary);
+      box-shadow: 0 0 0 3px var(--border-focus);
+    }
+
+    .password-toggle-btn {
+      position: absolute;
+      right: 12px;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 1.1rem;
+      padding: 4px;
+    }
+
+    .auth-submit-btn {
+      width: 100%;
+      background: var(--emerald-primary);
+      color: #0c1611;
+      font-size: 0.96rem;
+      font-weight: 800;
+      padding: 13px;
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 10px;
+      box-shadow: 0 4px 14px rgba(33, 181, 115, 0.35);
+      transition: all 0.2s ease;
+    }
+
+    .auth-submit-btn:hover:not(:disabled) {
+      background: var(--emerald-hover);
+      transform: translateY(-1px);
+    }
+
+    .auth-submit-btn:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .auth-error-box {
+      display: none;
+      background: var(--udhaar-bg);
+      border: 1px solid var(--udhaar-border);
+      color: var(--udhaar-red);
+      font-size: 0.84rem;
+      padding: 10px 12px;
+      border-radius: var(--radius-sm);
+      margin-top: 14px;
+      text-align: center;
+      font-weight: 600;
+    }
+
+    .auth-divider {
+      display: flex;
+      align-items: center;
+      margin: 18px 0;
+      color: var(--text-muted);
+      font-size: 0.76rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+    }
+
+    .auth-divider::before,
+    .auth-divider::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: var(--border-subtle);
+    }
+
+    .auth-divider span {
+      padding: 0 12px;
+    }
+
+    .google-auth-btn {
+      width: 100%;
+      background: #ffffff;
+      color: #1f2937;
+      font-size: 0.94rem;
+      font-weight: 700;
+      padding: 12px 16px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      transition: all 0.2s ease;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    }
+
+    .google-auth-btn:hover:not(:disabled) {
+      background: #f9fafb;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+      transform: translateY(-1px);
+    }
+
+    .google-auth-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .password-match-hint {
+      font-size: 0.78rem;
+      margin-top: 6px;
+      font-weight: 600;
+      display: none;
+    }
+    .password-match-hint.valid {
+      display: block;
+      color: var(--jama-green);
+    }
+    .password-match-hint.invalid {
+      display: block;
+      color: var(--udhaar-red);
+    }
+
+    /* ==========================================================================
+       AUTHENTICATED APPLICATION SHELL (SIDEBAR + MAIN VIEW)
+       ========================================================================== */
+    .app-layout {
+      display: none;
+      min-height: 100vh;
+      background: var(--bg-obsidian);
+    }
+
+    .app-layout.active {
+      display: flex;
+    }
+
+    /* Left Sidebar */
+    .app-sidebar {
+      width: 250px;
+      background: var(--bg-surface);
+      border-right: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      z-index: 100;
+      transition: transform 0.25s ease;
+    }
+
+    .sidebar-header {
+      padding: 22px 20px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .sidebar-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .sidebar-brand-name {
+      font-size: 1.35rem;
+      font-weight: 800;
+      color: var(--warm-ivory);
+      letter-spacing: -0.5px;
+    }
+    .sidebar-brand-name span { color: var(--emerald-primary); }
+
+    .sidebar-shop-pill {
+      font-size: 0.74rem;
+      font-weight: 700;
+      color: var(--emerald-primary);
+      background: var(--emerald-light);
+      padding: 2px 8px;
+      border-radius: var(--radius-full);
+      max-width: 140px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: block;
+      margin-top: 2px;
+    }
+
+    /* Sidebar Navigation Links */
+    .sidebar-nav {
+      flex: 1;
+      padding: 16px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      overflow-y: auto;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 11px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      background: transparent;
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all 0.18s ease;
+      text-align: left;
+      width: 100%;
+    }
+
+    .nav-item:hover {
+      background: var(--bg-surface-elevated);
+      color: var(--warm-ivory);
+    }
+
+    .nav-item.active {
+      background: var(--forest-green);
+      color: var(--emerald-primary);
+      border-color: rgba(33, 181, 115, 0.25);
+    }
+
+    .nav-icon {
+      font-size: 1.15rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+    }
+
+    .sidebar-footer {
+      padding: 16px;
+      border-top: 1px solid var(--border-subtle);
+      background: rgba(17, 24, 21, 0.5);
+    }
+
+    .user-profile-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .user-info {
+      overflow: hidden;
+    }
+
+    .user-name {
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: var(--warm-ivory);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .user-role {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .btn-logout {
+      background: none;
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      border-radius: var(--radius-sm);
+      padding: 6px 10px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn-logout:hover {
+      background: var(--udhaar-bg);
+      border-color: var(--udhaar-border);
+      color: var(--udhaar-red);
+    }
+
+    /* Main Content Area */
+    .app-main-content {
+      flex: 1;
+      margin-left: 250px;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      background: var(--bg-obsidian);
+    }
+
+    /* Top Bar */
+    .app-topbar {
+      height: 68px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 28px;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .mobile-menu-toggle {
+      display: none;
+      background: none;
+      border: 1px solid var(--border-subtle);
+      color: var(--warm-ivory);
+      font-size: 1.3rem;
+      padding: 6px 10px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+    }
+
+    .page-title {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: var(--warm-ivory);
+    }
+
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .ist-clock-badge {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg-obsidian);
+      padding: 6px 12px;
+      border-radius: var(--radius-full);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .ai-health-badge {
+      font-size: 0.78rem;
+      font-weight: 700;
+      padding: 5px 12px;
+      border-radius: var(--radius-full);
+      background: var(--emerald-light);
+      color: var(--emerald-primary);
+      border: 1px solid var(--emerald-glow);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .topbar-voice-btn {
+      background: var(--emerald-primary);
+      color: #0b1510;
+      border: none;
+      font-size: 0.85rem;
+      font-weight: 800;
+      padding: 7px 14px;
+      border-radius: var(--radius-full);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      box-shadow: var(--shadow-emerald);
+      transition: all 0.2s ease;
+    }
+
+    .topbar-voice-btn:hover {
+      background: var(--emerald-hover);
+    }
+
+    /* Page Content View Containers */
+    .view-content-wrapper {
+      padding: 28px;
+      flex: 1;
+      max-width: 1200px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    .subview {
+      display: none;
+      animation: subviewEnter 0.22s ease-out;
+    }
+
+    .subview.active {
+      display: block;
+    }
+
+    @keyframes subviewEnter {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ==========================================================================
+       DASHBOARD VIEW
+       ========================================================================== */
+    .dashboard-header-banner {
+      background: linear-gradient(135deg, var(--forest-green) 0%, #11221B 100%);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .banner-left h2 {
+      font-size: 1.35rem;
+      font-weight: 800;
+      color: var(--warm-ivory);
+      margin-bottom: 4px;
+    }
+
+    .banner-left p {
+      font-size: 0.88rem;
+      color: var(--text-muted);
+    }
+
+    .banner-quick-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .btn-action-primary {
+      background: var(--emerald-primary);
+      color: #0c1611;
+      border: none;
+      padding: 10px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 0.88rem;
+      font-weight: 800;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .btn-action-primary:hover { background: var(--emerald-hover); }
+
+    .btn-action-secondary {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--warm-ivory);
+      border: 1px solid var(--border-subtle);
+      padding: 10px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 0.88rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .btn-action-secondary:hover { background: rgba(255, 255, 255, 0.14); }
+
+    /* Financial Stat Cards Grid */
+    .stats-cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 18px;
+      margin-bottom: 28px;
+    }
+
+    .stat-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+
+    .stat-card:hover {
+      border-color: rgba(33, 181, 115, 0.4);
+      transform: translateY(-2px);
+    }
+
+    .stat-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 4px;
+      height: 100%;
+    }
+
+    .stat-card.udhaar::before { background: var(--udhaar-red); }
+    .stat-card.jama::before { background: var(--jama-green); }
+    .stat-card.net::before { background: #38bdf8; }
+    .stat-card.customers::before { background: #f59e0b; }
+
+    .stat-card-title {
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+
+    .stat-card-value {
+      font-size: 1.7rem;
+      font-weight: 800;
+      color: var(--warm-ivory);
+      letter-spacing: -0.5px;
+    }
+
+    .stat-card.udhaar .stat-card-value { color: var(--udhaar-red); }
+    .stat-card.jama .stat-card-value { color: var(--jama-green); }
+
+    .stat-card-sub {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-top: 6px;
+    }
+
+    /* Dashboard Split Section */
+    .dashboard-split-grid {
+      display: grid;
+      grid-template-columns: 2fr 1.2fr;
+      gap: 24px;
+    }
+
+    @media (max-width: 992px) {
+      .dashboard-split-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .panel-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 22px;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .panel-title {
+      font-size: 1.05rem;
+      font-weight: 800;
+      color: var(--warm-ivory);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Transactions list inside dashboard */
+    .tx-feed-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .tx-feed-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
+      background: var(--bg-input);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+    }
+
+    .tx-feed-left {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .tx-cust-name {
+      font-weight: 700;
+      font-size: 0.92rem;
+      color: var(--warm-ivory);
+    }
+
+    .tx-time-stamp {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .tx-feed-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .badge-pill {
+      font-size: 0.72rem;
+      font-weight: 800;
+      padding: 4px 10px;
+      border-radius: var(--radius-full);
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .badge-pill.udhaar {
+      background: var(--udhaar-bg);
+      color: var(--udhaar-red);
+      border: 1px solid var(--udhaar-border);
+    }
+
+    .badge-pill.jama {
+      background: var(--jama-bg);
+      color: var(--jama-green);
+      border: 1px solid var(--jama-border);
+    }
+
+    .badge-pill.neutral {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-muted);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .tx-amount-display {
+      font-size: 1rem;
+      font-weight: 800;
+    }
+    .tx-amount-display.udhaar { color: var(--udhaar-red); }
+    .tx-amount-display.jama { color: var(--jama-green); }
+
+    /* ==========================================================================
+       CUSTOMERS DIRECTORY VIEW
+       ========================================================================== */
+    .search-filter-bar {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    .search-input-field {
+      flex: 1;
+      min-width: 260px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 12px 16px;
+      color: var(--warm-ivory);
+      font-size: 0.92rem;
+      outline: none;
+    }
+
+    .search-input-field:focus {
+      border-color: var(--emerald-primary);
+      box-shadow: 0 0 0 3px var(--border-focus);
+    }
+
+    .data-table-wrapper {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      overflow-x: auto;
+    }
+
+    .financial-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.88rem;
+    }
+
+    .financial-table th {
+      background: var(--bg-surface-elevated);
+      color: var(--text-muted);
+      font-weight: 700;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border-subtle);
+      white-space: nowrap;
+      text-transform: uppercase;
+      font-size: 0.74rem;
+      letter-spacing: 0.5px;
+    }
+
+    .financial-table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      color: var(--text-sub);
+    }
+
+    .financial-table tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .table-btn-action {
+      background: var(--emerald-light);
+      border: 1px solid var(--emerald-glow);
+      color: var(--emerald-primary);
+      padding: 6px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 0.78rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .table-btn-action:hover {
+      background: var(--emerald-primary);
+      color: #0c1611;
+    }
+
+    /* Customer Statement Drawer / Modal */
+    .drawer-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(4px);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .drawer-modal-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      max-width: 620px;
+      width: 100%;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: var(--shadow-lg);
+      animation: authCardEnter 0.25s ease-out;
+    }
+
+    .drawer-header {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .drawer-body {
+      padding: 20px 24px;
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    /* ==========================================================================
+       NAYA ENTRY (MANUAL TRANSACTION ENTRY FORM)
+       ========================================================================== */
+    .entry-form-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 32px;
+      max-width: 600px;
+      margin: 0 auto;
+      box-shadow: var(--shadow-md);
+    }
+
+    .entry-type-selector {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-bottom: 22px;
+    }
+
+    .type-choice-btn {
+      padding: 16px;
+      border-radius: var(--radius-md);
+      background: var(--bg-input);
+      border: 2px solid var(--border-subtle);
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+      color: var(--warm-ivory);
+    }
+
+    .type-choice-btn.selected-udhaar {
+      border-color: var(--udhaar-red);
+      background: var(--udhaar-bg);
+      color: var(--udhaar-red);
+    }
+
+    .type-choice-btn.selected-jama {
+      border-color: var(--jama-green);
+      background: var(--jama-bg);
+      color: var(--jama-green);
+    }
+
+    .type-title {
+      font-size: 1.05rem;
+      font-weight: 800;
+    }
+
+    .type-sub {
+      font-size: 0.78rem;
+      opacity: 0.85;
+    }
+
+    .rupee-presets-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .preset-chip-btn {
+      background: var(--bg-input);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-sub);
+      padding: 5px 12px;
+      border-radius: var(--radius-full);
+      font-size: 0.8rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .preset-chip-btn:hover {
+      border-color: var(--emerald-primary);
+      color: var(--emerald-primary);
+    }
+
+    /* ==========================================================================
+       BAHI-KHATA (LEDGER HISTORY) VIEW
+       ========================================================================== */
+    .filter-chips-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+
+    .filter-chip {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      padding: 8px 16px;
+      border-radius: var(--radius-full);
+      font-size: 0.84rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.18s ease;
+    }
+
+    .filter-chip:hover {
+      color: var(--warm-ivory);
+      border-color: var(--border-accent);
+    }
+
+    .filter-chip.active {
+      background: var(--forest-green);
+      color: var(--emerald-primary);
+      border-color: var(--emerald-primary);
+    }
+
+    .ledger-controls-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) 120px;
+      gap: 12px;
+      margin-bottom: 20px;
+      align-items: flex-end;
+    }
+
+    .ledger-stat-banner {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+
+    .ledger-stat-box {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 14px 18px;
+    }
+
+    .pagination-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 18px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    /* ==========================================================================
+       SUNO HISAB VOICE ASSISTANT VIEW
+       ========================================================================== */
+    .voice-hub-container {
+      max-width: 760px;
+      margin: 0 auto;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 30px;
+      box-shadow: var(--shadow-lg);
+    }
+
+    .voice-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-subtle);
+      padding-bottom: 16px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .session-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 14px;
+      border-radius: var(--radius-full);
+      font-size: 0.76rem;
+      font-weight: 800;
+      letter-spacing: 0.3px;
+    }
+
+    .session-badge.active {
+      background: rgba(33, 181, 115, 0.15);
+      color: var(--emerald-primary);
+      border: 1px solid var(--emerald-primary);
+      animation: pulseGreen 2s infinite;
+    }
+
+    .fsm-state-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      border-radius: var(--radius-full);
+      font-size: 0.74rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      background: var(--bg-input);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+    }
+
+    .mic-stage {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 30px 0 20px;
+    }
+
+    .mic-large-btn {
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      border: none;
+      background: var(--forest-green);
+      color: var(--emerald-primary);
+      font-size: 2.6rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), var(--shadow-emerald);
+      transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+      position: relative;
+    }
+
+    .mic-large-btn.listening {
+      background: var(--emerald-primary);
+      color: #0c1611;
+      animation: micPulse 1.8s infinite;
+    }
+
+    .mic-large-btn.capturing {
+      background: #f59e0b;
+      color: #0c1611;
+      transform: scale(1.08);
+      animation: micPulseAmber 1s infinite;
+    }
+
+    .mic-large-btn.speaking {
+      background: #3b82f6;
+      color: #ffffff;
+      animation: micPulseBlue 1.6s infinite;
+    }
+
+    @keyframes micPulse {
+      0% { box-shadow: 0 0 0 0 rgba(33, 181, 115, 0.6); }
+      70% { box-shadow: 0 0 0 24px rgba(33, 181, 115, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(33, 181, 115, 0); }
+    }
+
+    @keyframes micPulseAmber {
+      0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); }
+      70% { box-shadow: 0 0 0 26px rgba(245, 158, 11, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+    }
+
+    @keyframes micPulseBlue {
+      0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.6); }
+      70% { box-shadow: 0 0 0 22px rgba(59, 130, 246, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+    }
+
+    .mic-stage-label {
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: var(--warm-ivory);
+      margin-top: 18px;
+      font-family: 'Noto Sans Devanagari', sans-serif;
+    }
+
+    .mic-stage-sub {
+      font-size: 0.84rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* Dialogue Bubbles */
+    .dialogue-history {
+      margin: 20px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .dialogue-bubble {
+      padding: 14px 18px;
+      border-radius: var(--radius-md);
+      font-size: 0.94rem;
+      line-height: 1.5;
+    }
+
+    .dialogue-bubble.user {
+      background: var(--bg-input);
+      border: 1px solid var(--border-subtle);
+      align-self: flex-start;
+      max-width: 90%;
+    }
+
+    .dialogue-bubble.assistant {
+      background: var(--forest-green);
+      border: 1px solid rgba(33, 181, 115, 0.3);
+      color: var(--warm-ivory);
+      font-weight: 600;
+      align-self: flex-end;
+      max-width: 90%;
+    }
+
+    .dialogue-tag {
+      font-size: 0.72rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+      color: var(--text-muted);
+    }
+    .dialogue-bubble.assistant .dialogue-tag { color: var(--emerald-primary); }
+
+    /* Confirmation Modal inside Voice */
+    .voice-confirmation-card {
+      display: none;
+      background: #252317;
+      border: 2px solid #f59e0b;
+      border-radius: var(--radius-md);
+      padding: 20px;
+      margin: 20px 0;
+      animation: authCardEnter 0.25s ease-out;
+    }
+
+    .confirm-btn-yes {
+      background: var(--emerald-primary);
+      color: #0c1611;
+      padding: 12px 20px;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-size: 0.95rem;
+      font-weight: 800;
+      cursor: pointer;
+      flex: 1;
+    }
+
+    .confirm-btn-no {
+      background: var(--udhaar-red);
+      color: #ffffff;
+      padding: 12px 20px;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-size: 0.95rem;
+      font-weight: 800;
+      cursor: pointer;
+      flex: 1;
+    }
+
+    /* ==========================================================================
+       REPORTS & ANALYTICS VIEW
+       ========================================================================== */
+    .analytics-hero-card {
+      background: linear-gradient(135deg, var(--forest-green) 0%, var(--bg-surface) 100%);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 26px;
+      margin-bottom: 24px;
+    }
+
+    .bar-comparison-container {
+      margin-top: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .bar-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .bar-label {
+      width: 140px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--text-sub);
+    }
+
+    .bar-track {
+      flex: 1;
+      height: 12px;
+      background: var(--bg-input);
+      border-radius: var(--radius-full);
+      overflow: hidden;
+      border: 1px solid var(--border-subtle);
+    }
+
+    .bar-fill {
+      height: 100%;
+      border-radius: var(--radius-full);
+      transition: width 0.6s ease;
+    }
+    .bar-fill.udhaar { background: var(--udhaar-red); }
+    .bar-fill.jama { background: var(--jama-green); }
+
+    .bar-value {
+      width: 110px;
+      text-align: right;
+      font-size: 0.88rem;
+      font-weight: 800;
+    }
+
+    /* ==========================================================================
+       SHOP SETTINGS VIEW
+       ========================================================================== */
+    .settings-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 768px) {
+      .settings-grid { grid-template-columns: 1fr; }
+    }
+
+    .settings-box {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 24px;
+    }
+
+    .settings-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border-subtle);
+      font-size: 0.9rem;
+    }
+    .settings-row:last-child { border-bottom: none; }
+
+    /* Toast Notification */
+    .app-toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 2000;
+      background: var(--bg-surface-elevated);
+      border: 1px solid var(--border-subtle);
+      padding: 14px 20px;
+      border-radius: var(--radius-md);
+      color: var(--warm-ivory);
+      font-size: 0.9rem;
+      font-weight: 700;
+      box-shadow: var(--shadow-lg);
+      display: none;
+      animation: authCardEnter 0.25s ease-out;
+    }
+    .app-toast.success { border-color: var(--emerald-primary); color: var(--emerald-primary); }
+    .app-toast.error { border-color: var(--udhaar-red); color: var(--udhaar-red); }
+
+    /* Mobile Bottom Navigation */
+    .mobile-bottom-nav {
+      display: none;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 64px;
+      background: var(--bg-surface);
+      border-top: 1px solid var(--border-subtle);
+      z-index: 90;
+      justify-content: space-around;
+      align-items: center;
+      padding: 0 4px;
+    }
+
+    .mobile-nav-btn {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 0.68rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .mobile-nav-btn.active {
+      color: var(--emerald-primary);
+    }
+
+    .mobile-nav-icon {
+      font-size: 1.15rem;
+    }
+
+    @media (max-width: 768px) {
+      .app-sidebar {
+        transform: translateX(-100%);
+      }
+      .app-sidebar.open {
+        transform: translateX(0);
+      }
+      .app-main-content {
+        margin-left: 0;
+        padding-bottom: 74px;
+      }
+      .mobile-menu-toggle {
+        display: block;
+      }
+      .mobile-bottom-nav {
+        display: flex;
+      }
+      .view-content-wrapper {
+        padding: 16px;
+      }
+      .app-topbar {
+        padding: 0 16px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ========================================================================
+       SCREEN 1: AUTHENTICATION (DEFAULT VIEW WHEN UNREGISTERED / NOT LOGGED IN)
+       ======================================================================== -->
+  <div id="authViewport" class="auth-viewport">
+    <div class="auth-orb auth-orb-1"></div>
+    <div class="auth-orb auth-orb-2"></div>
+
+    <div class="auth-glass-card">
+      <div class="auth-brand-badge">
+        <div class="auth-logo-icon">📖</div>
+        <div>
+          <div class="auth-brand-name">Hisab<span>AI</span></div>
+          <div style="font-size: 0.76rem; color: var(--emerald-primary); font-weight: 700;">DIGITAL KHATA SAAS</div>
+        </div>
+      </div>
+
+      <h1 class="auth-heading">Apne hisaab ko banaye smart</h1>
+      <p class="auth-subheading">
+        Udhaar, Jama aur "Suno Hisab" voice assistant ke saath apni dukaan ka bahi-khata digital karein.
+      </p>
+
+      <!-- Auth Mode Switcher -->
+      <div class="auth-tabs-row">
+        <button type="button" class="auth-tab-pill active" id="authTabLogin" onclick="switchAuthMode('login')">
+          Dukaandar Login
+        </button>
+        <button type="button" class="auth-tab-pill" id="authTabSignup" onclick="switchAuthMode('signup')">
+          Nayi Dukaan Register
+        </button>
+      </div>
+
+      <!-- Google Sign In Button -->
+      <div id="googleAuthContainer" style="margin-bottom: 6px;">
+        <div id="googleBtnWrapper" style="display: none; justify-content: center; margin-bottom: 8px;"></div>
+        <button type="button" class="google-auth-btn" id="googleCustomBtn" onclick="handleGoogleSignInClick()">
+          <svg width="18" height="18" viewBox="0 0 18 18">
+            <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.616z"/>
+            <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z"/>
+            <path fill="#FBBC05" d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957C.347 6.173 0 7.55 0 9s.347 2.827.957 4.039l3.007-2.332z"/>
+            <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.961L3.964 7.293C4.672 5.166 6.656 3.58 9 3.58z"/>
+          </svg>
+          <span id="googleBtnLabel">Continue with Google</span>
+        </button>
+      </div>
+
+      <div class="auth-divider">
+        <span>Ya Email / Password Se Karein</span>
+      </div>
+
+      <!-- Login Form -->
+      <form id="authLoginForm" onsubmit="handleAuthLogin(event)">
+        <div class="auth-form-group">
+          <label class="auth-label" for="loginUsername">Username ya Email</label>
+          <div class="auth-input-wrapper">
+            <input type="text" id="loginUsername" class="auth-input" placeholder="e.g. shopkeeper ya email@kirana.in" required autocomplete="username" />
+          </div>
+        </div>
+
+        <div class="auth-form-group">
+          <label class="auth-label" for="loginPassword">Password</label>
+          <div class="auth-input-wrapper">
+            <input type="password" id="loginPassword" class="auth-input" placeholder="Enter password" required autocomplete="current-password" />
+            <button type="button" class="password-toggle-btn" onclick="togglePasswordVisibility('loginPassword')">👁️</button>
+          </div>
+        </div>
+
+        <button type="submit" class="auth-submit-btn" id="loginSubmitBtn">
+          <span>Login Karein ➔</span>
+        </button>
+      </form>
+
+      <!-- Sign Up Form -->
+      <form id="authSignupForm" style="display: none;" onsubmit="handleAuthSignup(event)">
+        <div class="auth-form-group">
+          <label class="auth-label" for="signupShopName">Dukaan Ka Naam (Shop Name)</label>
+          <div class="auth-input-wrapper">
+            <input type="text" id="signupShopName" class="auth-input" placeholder="e.g. Sharma Kirana Store" required />
+          </div>
+        </div>
+
+        <div class="auth-form-group">
+          <label class="auth-label" for="signupOwnerName">Dukaandar Ka Naam (Owner Name)</label>
+          <div class="auth-input-wrapper">
+            <input type="text" id="signupOwnerName" class="auth-input" placeholder="e.g. Ramesh Sharma" />
+          </div>
+        </div>
+
+        <div class="auth-form-group">
+          <label class="auth-label" for="signupEmail">Email Address</label>
+          <div class="auth-input-wrapper">
+            <input type="email" id="signupEmail" class="auth-input" placeholder="e.g. ramesh@kirana.in" required autocomplete="email" />
+          </div>
+        </div>
+
+        <div class="auth-form-group">
+          <label class="auth-label" for="signupPassword">Password</label>
+          <div class="auth-input-wrapper">
+            <input type="password" id="signupPassword" class="auth-input" placeholder="Password chunein (min 6 characters)" required autocomplete="new-password" oninput="checkPasswordMatch()" />
+            <button type="button" class="password-toggle-btn" onclick="togglePasswordVisibility('signupPassword')">👁️</button>
+          </div>
+        </div>
+
+        <div class="auth-form-group">
+          <label class="auth-label" for="signupConfirmPassword">Confirm Password</label>
+          <div class="auth-input-wrapper">
+            <input type="password" id="signupConfirmPassword" class="auth-input" placeholder="Password dobara darj karein" required autocomplete="new-password" oninput="checkPasswordMatch()" />
+            <button type="button" class="password-toggle-btn" onclick="togglePasswordVisibility('signupConfirmPassword')">👁️</button>
+          </div>
+          <div id="signupPasswordMatchHint" class="password-match-hint"></div>
+        </div>
+
+        <button type="submit" class="auth-submit-btn" id="signupSubmitBtn">
+          <span>Dukaan Register Karein ➔</span>
+        </button>
+      </form>
+
+      <div id="authErrorDisplay" class="auth-error-box"></div>
+    </div>
+  </div>
+
+
+  <!-- ========================================================================
+       SCREEN 2: AUTHENTICATED APPLICATION SHELL
+       ======================================================================== -->
+  <div id="appLayout" class="app-layout">
+
+    <!-- Left Sidebar -->
+    <aside id="appSidebar" class="app-sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-brand">
+          <div style="font-size: 1.4rem;">📖</div>
+          <div>
+            <div class="sidebar-brand-name">Hisab<span>AI</span></div>
+            <span class="sidebar-shop-pill" id="sidebarShopPill">Apna Kirana Store</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Navigation Menu: Exactly 7 Core Features -->
+      <nav class="sidebar-nav">
+        <button type="button" class="nav-item active" id="navDashboard" onclick="navigateTo('dashboard')">
+          <span class="nav-icon">📊</span>
+          <span>Dashboard</span>
+        </button>
+
+        <button type="button" class="nav-item" id="navCustomers" onclick="navigateTo('customers')">
+          <span class="nav-icon">👥</span>
+          <span>Grahak / Customers</span>
+        </button>
+
+        <button type="button" class="nav-item" id="navNewEntry" onclick="navigateTo('new_entry')">
+          <span class="nav-icon">➕</span>
+          <span>Naya Entry</span>
+        </button>
+
+        <button type="button" class="nav-item" id="navLedger" onclick="navigateTo('ledger')">
+          <span class="nav-icon">📜</span>
+          <span>Bahi-Khata / Ledger</span>
+        </button>
+
+        <button type="button" class="nav-item" id="navVoice" onclick="navigateTo('voice')">
+          <span class="nav-icon">🎙️</span>
+          <span>Suno Hisab (Voice)</span>
+        </button>
+
+        <button type="button" class="nav-item" id="navReports" onclick="navigateTo('reports')">
+          <span class="nav-icon">📈</span>
+          <span>Reports & Analytics</span>
+        </button>
+
+        <button type="button" class="nav-item" id="navSettings" onclick="navigateTo('settings')">
+          <span class="nav-icon">⚙️</span>
+          <span>Shop Settings</span>
+        </button>
+      </nav>
+
+      <!-- Sidebar User Footer -->
+      <div class="sidebar-footer">
+        <div class="user-profile-card">
+          <div class="user-info">
+            <div class="user-name" id="sidebarUserName">Shopkeeper</div>
+            <div class="user-role" id="sidebarUserRole">Dukaandar</div>
+          </div>
+          <button type="button" class="btn-logout" onclick="executeLogout()" title="Log out">
+            🚪 Logout
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Layout -->
+    <div class="app-main-content">
+
+      <!-- Top Bar -->
+      <header class="app-topbar">
+        <div class="topbar-left">
+          <button type="button" class="mobile-menu-toggle" onclick="toggleMobileSidebar()">☰</button>
+          <div class="page-title" id="pageTitleDisplay">Dashboard</div>
+        </div>
+
+        <div class="topbar-right">
+          <div class="ist-clock-badge" id="istClockDisplay">
+            <span>🕒</span>
+            <span id="istClockText">Asia/Kolkata</span>
+          </div>
+
+          <div class="ai-health-badge" id="aiHealthBadge">
+            <span>🟢</span>
+            <span id="aiModelText">Gemma 2.5 Active</span>
+          </div>
+
+          <button type="button" class="topbar-voice-btn" onclick="navigateTo('voice'); startContinuousVoice();">
+            <span>🎙️</span>
+            <span>Suno Hisab</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Subview Content Wrapper -->
+      <main class="view-content-wrapper">
+
+        <!-- ==================================================================
+             SUBVIEW 1: DASHBOARD
+             ================================================================== -->
+        <section id="subviewDashboard" class="subview active">
+
+          <div class="dashboard-header-banner">
+            <div class="banner-left">
+              <h2 id="bannerGreeting">Swagatam, Dukaandar Ji!</h2>
+              <p>Aapki dukaan ka live daily khata summary aur instant customer balances.</p>
+            </div>
+            <div class="banner-quick-actions">
+              <button type="button" class="btn-action-primary" onclick="openNewEntryWithMode('UDHAAR')">
+                <span>🔴</span> + Udhaar Likho
+              </button>
+              <button type="button" class="btn-action-primary" style="background: #2563eb; color: #fff;" onclick="openNewEntryWithMode('JAMA')">
+                <span>🟢</span> + Jama Likho
+              </button>
+              <button type="button" class="btn-action-secondary" onclick="navigateTo('voice'); startContinuousVoice();">
+                <span>🎙️</span> Voice Assistant
+              </button>
+            </div>
+          </div>
+
+          <!-- Financial Stat Cards Grid -->
+          <div class="stats-cards-grid">
+            <div class="stat-card udhaar">
+              <div class="stat-card-title">Aaj Ka Udhaar (Credit Given)</div>
+              <div class="stat-card-value" id="dashUdhaarVal">₹0.00</div>
+              <div class="stat-card-sub" id="dashUdhaarSub">Today's Total Outgoing</div>
+            </div>
+
+            <div class="stat-card jama">
+              <div class="stat-card-title">Aaj Ki Jama (Payment Received)</div>
+              <div class="stat-card-value" id="dashJamaVal">₹0.00</div>
+              <div class="stat-card-sub" id="dashJamaSub">Today's Total Collections</div>
+            </div>
+
+            <div class="stat-card net">
+              <div class="stat-card-title">Aaj Ka Net Movement</div>
+              <div class="stat-card-value" id="dashNetVal">₹0.00</div>
+              <div class="stat-card-sub" id="dashNetSub">Balance movement today</div>
+            </div>
+
+            <div class="stat-card customers">
+              <div class="stat-card-title">Total Active Grahak</div>
+              <div class="stat-card-value" id="dashCustomersCount">0</div>
+              <div class="stat-card-sub" id="dashDebtorsCount">0 with outstanding balance</div>
+            </div>
+          </div>
+
+          <!-- Dashboard Split Section -->
+          <div class="dashboard-split-grid">
+            <!-- Left: Today's Recent Transactions -->
+            <div class="panel-card">
+              <div class="panel-header">
+                <div class="panel-title">
+                  <span>⚡</span> Today's Transactions (आज की एंट्रियां)
+                </div>
+                <button type="button" class="table-btn-action" onclick="fetchDashboardData()">↻ Refresh</button>
+              </div>
+              <div id="dashTxList" class="tx-feed-list">
+                <div style="text-align: center; color: var(--text-muted); padding: 24px;">Loading transactions...</div>
+              </div>
+            </div>
+
+            <!-- Right: Quick Khata Snapshot -->
+            <div class="panel-card">
+              <div class="panel-header">
+                <div class="panel-title">
+                  <span>📌</span> Top Baqaya Accounts
+                </div>
+                <button type="button" class="table-btn-action" onclick="navigateTo('customers')">View All</button>
+              </div>
+              <div id="dashTopDebtorsList" class="tx-feed-list">
+                <div style="text-align: center; color: var(--text-muted); padding: 24px;">Loading customers...</div>
+              </div>
+            </div>
+          </div>
+
+        </section>
+
+
+        <!-- ==================================================================
+             SUBVIEW 2: CUSTOMERS DIRECTORY
+             ================================================================== -->
+        <section id="subviewCustomers" class="subview">
+          <div class="panel-card" style="margin-bottom: 24px;">
+            <div class="panel-header">
+              <div class="panel-title">
+                <span>👥</span> Grahak Directory (Customer Khata)
+              </div>
+              <button type="button" class="btn-action-primary" onclick="openNewEntryWithMode('UDHAAR')">+ Add Customer Transaction</button>
+            </div>
+
+            <div class="search-filter-bar">
+              <input 
+                type="text" 
+                id="customerSearchField" 
+                class="search-input-field" 
+                placeholder="Search grahak by name (e.g. Sharma ji, Raju)..." 
+                oninput="handleCustomerSearchInput()"
+              />
+              <button type="button" class="btn-action-secondary" onclick="fetchCustomerDirectory()">↻ Refresh Directory</button>
+            </div>
+
+            <div class="data-table-wrapper">
+              <table class="financial-table">
+                <thead>
+                  <tr>
+                    <th>Grahak Name</th>
+                    <th>Khata Status</th>
+                    <th>Outstanding Baqaya</th>
+                    <th>Total Udhaar</th>
+                    <th>Total Jama</th>
+                    <th>Entries</th>
+                    <th>Last Active</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="customersTableBody">
+                  <tr>
+                    <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 28px;">Loading directory...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+
+        <!-- ==================================================================
+             SUBVIEW 3: NAYA ENTRY (NEW TRANSACTION ENTRY)
+             ================================================================== -->
+        <section id="subviewNewEntry" class="subview">
+          <div class="entry-form-card">
+            <h2 style="font-size: 1.3rem; font-weight: 800; color: var(--warm-ivory); margin-bottom: 4px;">
+              ➕ Nayi Khata Entry Karein
+            </h2>
+            <p style="font-size: 0.86rem; color: var(--text-muted); margin-bottom: 24px;">
+              Grahak ke khate mein seedhe Udhaar ya Jama record karein.
+            </p>
+
+            <form id="newTransactionForm" onsubmit="handleManualTransactionSubmit(event)">
+              
+              <!-- Transaction Type Selector -->
+              <div class="entry-type-selector">
+                <button 
+                  type="button" 
+                  id="choiceUdhaar" 
+                  class="type-choice-btn selected-udhaar" 
+                  onclick="selectEntryType('UDHAAR')"
+                >
+                  <span class="type-title">🔴 Udhaar (Credit)</span>
+                  <span class="type-sub">Samaan udhaar par diya</span>
+                </button>
+
+                <button 
+                  type="button" 
+                  id="choiceJama" 
+                  class="type-choice-btn" 
+                  onclick="selectEntryType('JAMA')"
+                >
+                  <span class="type-title">🟢 Jama (Received)</span>
+                  <span class="type-sub">Paisa prapt kiya</span>
+                </button>
+              </div>
+
+              <!-- Customer Name -->
+              <div class="auth-form-group">
+                <label class="auth-label" for="entryCustomerName">Grahak Ka Naam (Customer Name)</label>
+                <input 
+                  type="text" 
+                  id="entryCustomerName" 
+                  class="auth-input" 
+                  placeholder="e.g. Sharma ji, Raju, Gupta ji" 
+                  required 
+                  list="customerNameDatalist"
+                  autocomplete="off"
+                />
+                <datalist id="customerNameDatalist"></datalist>
+              </div>
+
+              <!-- Amount in Rupees -->
+              <div class="auth-form-group">
+                <label class="auth-label" for="entryAmount">Amount (राशि ₹)</label>
+                <input 
+                  type="number" 
+                  step="0.01" 
+                  min="0.01" 
+                  id="entryAmount" 
+                  class="auth-input" 
+                  placeholder="0.00" 
+                  required 
+                  style="font-size: 1.25rem; font-weight: 800;"
+                />
+                <div class="rupee-presets-row">
+                  <button type="button" class="preset-chip-btn" onclick="addAmountPreset(50)">+₹50</button>
+                  <button type="button" class="preset-chip-btn" onclick="addAmountPreset(100)">+₹100</button>
+                  <button type="button" class="preset-chip-btn" onclick="addAmountPreset(200)">+₹200</button>
+                  <button type="button" class="preset-chip-btn" onclick="addAmountPreset(500)">+₹500</button>
+                  <button type="button" class="preset-chip-btn" onclick="addAmountPreset(1000)">+₹1,000</button>
+                </div>
+              </div>
+
+              <!-- Description / Samaan Notes -->
+              <div class="auth-form-group">
+                <label class="auth-label" for="entryNotes">Note / Samaan ki detail (Optional)</label>
+                <input 
+                  type="text" 
+                  id="entryNotes" 
+                  class="auth-input" 
+                  placeholder="e.g. 5kg Aata, 1 packet Cheeni" 
+                />
+              </div>
+
+              <button type="submit" class="auth-submit-btn" id="submitEntryBtn">
+                <span>✓ Khata Mein Save Karein</span>
+              </button>
+            </form>
+          </div>
+        </section>
+
+
+        <!-- ==================================================================
+             SUBVIEW 4: BAHI-KHATA / HISTORICAL LEDGER
+             ================================================================== -->
+        <section id="subviewLedger" class="subview">
+          <div class="panel-card" style="margin-bottom: 24px;">
+            <div class="panel-header">
+              <div class="panel-title">
+                <span>📜</span> Bahi-Khata (Historical Ledger)
+              </div>
+              <button type="button" class="table-btn-action" onclick="fetchLedgerData(1)">↻ Refresh Ledger</button>
+            </div>
+
+            <!-- Date Preset Chips -->
+            <div class="filter-chips-row">
+              <button type="button" class="filter-chip active" id="chipMonth" onclick="selectLedgerPreset('this_month')">This Month (इस महीने)</button>
+              <button type="button" class="filter-chip" id="chipToday" onclick="selectLedgerPreset('today')">Today (आज)</button>
+              <button type="button" class="filter-chip" id="chipYesterday" onclick="selectLedgerPreset('yesterday')">Yesterday (कल)</button>
+              <button type="button" class="filter-chip" id="chipWeek" onclick="selectLedgerPreset('this_week')">This Week (इस हफ्ते)</button>
+              <button type="button" class="filter-chip" id="chipAll" onclick="selectLedgerPreset('all')">All Time (सभी)</button>
+            </div>
+
+            <!-- Detailed Filters Grid -->
+            <div class="ledger-controls-grid">
+              <div>
+                <label class="auth-label">Transaction Type</label>
+                <select id="ledgerFilterType" class="search-input-field" style="padding: 10px;" onchange="fetchLedgerData(1)">
+                  <option value="">All Types (उधार + जमा)</option>
+                  <option value="UDHAAR">Kewal Udhaar (Credit)</option>
+                  <option value="JAMA">Kewal Jama (Payment)</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="auth-label">Grahak Filter</label>
+                <input type="text" id="ledgerFilterCustomer" class="search-input-field" placeholder="Customer name..." style="padding: 10px;" onkeydown="if(event.key==='Enter') fetchLedgerData(1);" />
+              </div>
+
+              <div>
+                <label class="auth-label">Start Date</label>
+                <input type="date" id="ledgerStartDate" class="search-input-field" style="padding: 9px;" />
+              </div>
+
+              <div>
+                <label class="auth-label">End Date</label>
+                <input type="date" id="ledgerEndDate" class="search-input-field" style="padding: 9px;" />
+              </div>
+
+              <div>
+                <button type="button" class="btn-action-primary" style="width: 100%; justify-content: center;" onclick="fetchLedgerData(1)">Apply</button>
+              </div>
+            </div>
+
+            <!-- Period Statistics Banner -->
+            <div class="ledger-stat-banner">
+              <div class="ledger-stat-box">
+                <div style="font-size: 0.74rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">Period Udhaar</div>
+                <div id="statPeriodUdhaar" style="font-size: 1.3rem; font-weight: 800; color: var(--udhaar-red); margin-top: 2px;">₹0.00</div>
+              </div>
+              <div class="ledger-stat-box">
+                <div style="font-size: 0.74rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">Period Jama</div>
+                <div id="statPeriodJama" style="font-size: 1.3rem; font-weight: 800; color: var(--jama-green); margin-top: 2px;">₹0.00</div>
+              </div>
+              <div class="ledger-stat-box">
+                <div style="font-size: 0.74rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">Net Movement</div>
+                <div id="statPeriodNet" style="font-size: 1.3rem; font-weight: 800; color: var(--warm-ivory); margin-top: 2px;">₹0.00</div>
+              </div>
+              <div class="ledger-stat-box">
+                <div style="font-size: 0.74rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">Records Found</div>
+                <div id="statPeriodCount" style="font-size: 1.3rem; font-weight: 800; color: var(--warm-ivory); margin-top: 2px;">0</div>
+              </div>
+            </div>
+
+            <!-- Ledger Table -->
+            <div class="data-table-wrapper">
+              <table class="financial-table">
+                <thead>
+                  <tr>
+                    <th>Date & Time (IST)</th>
+                    <th>Customer Name</th>
+                    <th>Type</th>
+                    <th>Description</th>
+                    <th>Amount (₹)</th>
+                    <th>Running Balance (₹)</th>
+                  </tr>
+                </thead>
+                <tbody id="ledgerTableBody">
+                  <tr>
+                    <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 28px;">Loading ledger...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Pagination Controls -->
+            <div class="pagination-footer">
+              <button type="button" id="ledgerPrevBtn" class="btn-action-secondary" onclick="changeLedgerPage(-1)" disabled>‹ Pichla (Previous)</button>
+              <span id="ledgerPageIndicator" style="font-size: 0.86rem; font-weight: 700; color: var(--text-muted);">Page 1 of 1</span>
+              <button type="button" id="ledgerNextBtn" class="btn-action-secondary" onclick="changeLedgerPage(1)" disabled>Agla (Next) ›</button>
+            </div>
+          </div>
+        </section>
+
+
+        <!-- ==================================================================
+             SUBVIEW 5: SUNO HISAB (VOICE ASSISTANT HUB)
+             ================================================================== -->
+        <section id="subviewVoice" class="subview">
+          <div class="voice-hub-container">
+            <div class="voice-header">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 1.4rem;">🎙️</span>
+                <span style="font-size: 1.15rem; font-weight: 800; color: var(--warm-ivory);">Suno Hisab Voice Hub</span>
+              </div>
+
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <div id="voiceSessionPill" class="session-badge" style="display: none;">
+                  <span>🟢</span>
+                  <span id="voiceSessionText">Baat-cheet Active</span>
+                </div>
+
+                <div id="voiceFsmBadge" class="fsm-state-badge">
+                  <span id="voiceFsmDot">⚪</span>
+                  <span id="voiceFsmText">OFFLINE (TAP MIC)</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Mic Center Stage -->
+            <div class="mic-stage">
+              <button type="button" id="voiceMicBtn" class="mic-large-btn" onclick="toggleContinuousVoice()">
+                🎤
+              </button>
+              <div class="mic-stage-label" id="voiceStageCaption">Tap microphone to start "Suno Hisab"</div>
+              <div class="mic-stage-sub" id="voiceStageSubcaption">Say "Suno Hisab" then speak naturally</div>
+            </div>
+
+            <!-- Dialogue History Bubbles -->
+            <div id="voiceDialogueBox" class="dialogue-history" style="display: none;">
+              <div class="dialogue-bubble user" id="userBubble">
+                <div class="dialogue-tag">You Said (सुना गया):</div>
+                <div id="userBubbleText"></div>
+              </div>
+              <div class="dialogue-bubble assistant" id="assistantBubble">
+                <div class="dialogue-tag">HisabAI Reply (जवाब):</div>
+                <div id="assistantBubbleText"></div>
+              </div>
+            </div>
+
+            <!-- Two-Step Confirmation Card -->
+            <div id="voiceConfirmCard" class="voice-confirmation-card">
+              <div style="font-weight: 800; color: #f59e0b; margin-bottom: 12px; font-size: 0.98rem;">
+                ⚠️ Transaction Confirmation (पुष्टि करें)
+              </div>
+              <div style="background: var(--bg-surface); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 14px; display: flex; flex-direction: column; gap: 6px;">
+                <div style="display: flex; justify-content: space-between;">
+                  <span style="color: var(--text-muted);">Customer:</span>
+                  <strong id="voiceConfirmCust">-</strong>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                  <span style="color: var(--text-muted);">Amount:</span>
+                  <strong id="voiceConfirmAmt" style="font-size: 1.15rem; color: var(--warm-ivory);">-</strong>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                  <span style="color: var(--text-muted);">Type:</span>
+                  <strong id="voiceConfirmType">-</strong>
+                </div>
+              </div>
+              <div style="display: flex; gap: 12px;">
+                <button type="button" class="confirm-btn-yes" onclick="submitVoiceConfirmationChoice('confirm')">✓ Haan, Save Kar Do</button>
+                <button type="button" class="confirm-btn-no" onclick="submitVoiceConfirmationChoice('cancel')">✕ Nahi, Cancel</button>
+              </div>
+              <div style="text-align: center; font-size: 0.8rem; color: #f59e0b; margin-top: 10px;">
+                Tip: Aap "Haan" ya "Nahi" bol kar bhi confirm kar sakte hain.
+              </div>
+            </div>
+
+            <!-- Voice Controls Row -->
+            <div style="display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap;">
+              <button type="button" id="voiceToggleModeBtn" class="btn-action-primary" style="flex: 1;" onclick="toggleContinuousVoice()">
+                <span id="voiceToggleModeIcon">▶️</span>
+                <span id="voiceToggleModeText">Start Voice Mode</span>
+              </button>
+              <button type="button" id="voiceTtsToggleBtn" class="btn-action-secondary" style="flex: 1;" onclick="toggleVoiceAudioMute()">
+                <span id="voiceTtsIcon">🔊</span>
+                <span id="voiceTtsText">Voice Audio: ON</span>
+              </button>
+            </div>
+
+            <!-- Manual Text Input Fallback -->
+            <div style="display: flex; gap: 8px; margin-top: 18px;">
+              <input 
+                type="text" 
+                id="voiceManualInput" 
+                class="search-input-field" 
+                placeholder="Type command: e.g. 'Sharma ji ka 250 udhaar likho' or 'Sharma ji ka hisab'" 
+                onkeydown="if(event.key==='Enter') sendManualVoiceCommand();"
+              />
+              <button type="button" class="btn-action-primary" onclick="sendManualVoiceCommand()">Send</button>
+            </div>
+
+            <!-- Suggested Voice Command Chips -->
+            <div style="margin-top: 20px; border-top: 1px solid var(--border-subtle); padding-top: 16px;">
+              <div style="font-size: 0.74rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px;">
+                Example Voice Prompts (Click to test):
+              </div>
+              <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <button type="button" class="preset-chip-btn" onclick="triggerVoicePreset('Suno Hisab, Sharma ji ka 250 rupaye udhaar likh do')">Sharma ji 250 udhaar</button>
+                <button type="button" class="preset-chip-btn" onclick="triggerVoicePreset('Suno Hisab, Raju ne 500 rupaye jama kiye')">Raju 500 jama</button>
+                <button type="button" class="preset-chip-btn" onclick="triggerVoicePreset('Suno Hisab, Sharma ji ka kitna baaki hai?')">Sharma ji ka hisab</button>
+                <button type="button" class="preset-chip-btn" onclick="triggerVoicePreset('Suno Hisab, Sharma ji ki history dikhao')">Sharma ji ki history</button>
+                <button type="button" class="preset-chip-btn" onclick="triggerVoicePreset('Suno Hisab, Sharma ji ka khata khatam kar do')">Sharma ji settlement</button>
+                <button type="button" class="preset-chip-btn" onclick="triggerVoicePreset('Suno Hisab, aaj ka hisab batao')">Aaj ka hisab</button>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+
+        <!-- ==================================================================
+             SUBVIEW 6: REPORTS & ANALYTICS
+             ================================================================== -->
+        <section id="subviewReports" class="subview">
+          <div class="analytics-hero-card">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+              <div>
+                <h2 style="font-size: 1.3rem; font-weight: 800; color: var(--warm-ivory);">
+                  📈 Business Financial Reports & Analytics
+                </h2>
+                <p style="font-size: 0.86rem; color: var(--text-muted);">
+                  Aapki dukaan ka market exposure, outstanding debt aur customer breakdown.
+                </p>
+              </div>
+              <button type="button" class="btn-action-primary" onclick="window.print()">
+                🖨️ Print / Export Report
+              </button>
+            </div>
+
+            <!-- Financial Comparison Bar -->
+            <div class="bar-comparison-container">
+              <div class="bar-row">
+                <div class="bar-label">Total Udhaar Given</div>
+                <div class="bar-track">
+                  <div class="bar-fill udhaar" id="analyticsUdhaarBar" style="width: 50%;"></div>
+                </div>
+                <div class="bar-value" id="analyticsUdhaarVal" style="color: var(--udhaar-red);">₹0.00</div>
+              </div>
+
+              <div class="bar-row">
+                <div class="bar-label">Total Jama Collected</div>
+                <div class="bar-track">
+                  <div class="bar-fill jama" id="analyticsJamaBar" style="width: 50%;"></div>
+                </div>
+                <div class="bar-value" id="analyticsJamaVal" style="color: var(--jama-green);">₹0.00</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Customer Segmentation Metrics -->
+          <div class="stats-cards-grid">
+            <div class="stat-card udhaar">
+              <div class="stat-card-title">Market Outstanding Debt (कुल उधारी)</div>
+              <div class="stat-card-value" id="reportMarketDebt">₹0.00</div>
+              <div class="stat-card-sub" id="reportDebtorsCount">Across 0 customers</div>
+            </div>
+
+            <div class="stat-card jama">
+              <div class="stat-card-title">Advance Deposits (जमा राशि)</div>
+              <div class="stat-card-value" id="reportAdvanceDeposit">₹0.00</div>
+              <div class="stat-card-sub" id="reportAdvanceCount">Customers with credit balance</div>
+            </div>
+
+            <div class="stat-card net">
+              <div class="stat-card-title">Net Market Receivable</div>
+              <div class="stat-card-value" id="reportNetReceivable">₹0.00</div>
+              <div class="stat-card-sub">Effective market net position</div>
+            </div>
+
+            <div class="stat-card customers">
+              <div class="stat-card-title">Hisab Clear Customers</div>
+              <div class="stat-card-value" id="reportClearCount">0</div>
+              <div class="stat-card-sub">Zero outstanding balance</div>
+            </div>
+          </div>
+
+          <!-- Debtors Ranking Table -->
+          <div class="panel-card">
+            <div class="panel-header">
+              <div class="panel-title">
+                <span>🏆</span> Debtor Rankings (Top 5 Customers with Highest Baqaya)
+              </div>
+            </div>
+            <div class="data-table-wrapper">
+              <table class="financial-table">
+                <thead>
+                  <tr>
+                    <th>Rank</th>
+                    <th>Customer Name</th>
+                    <th>Outstanding Debt</th>
+                    <th>Lifetime Udhaar</th>
+                    <th>Transactions</th>
+                    <th>Last Active</th>
+                  </tr>
+                </thead>
+                <tbody id="analyticsDebtorsBody">
+                  <tr>
+                    <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">Loading rankings...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+
+        <!-- ==================================================================
+             SUBVIEW 7: SHOP SETTINGS
+             ================================================================== -->
+        <section id="subviewSettings" class="subview">
+          <div class="settings-grid">
+            
+            <div class="settings-box">
+              <h3 style="font-size: 1.15rem; font-weight: 800; color: var(--warm-ivory); margin-bottom: 14px;">
+                🏪 Dukaandar Profile
+              </h3>
+              <div class="settings-row">
+                <span style="color: var(--text-muted);">Shop Name:</span>
+                <strong id="settingsShopName" style="color: var(--warm-ivory);">-</strong>
+              </div>
+              <div class="settings-row">
+                <span style="color: var(--text-muted);">Username:</span>
+                <strong id="settingsUsername" style="color: var(--warm-ivory);">-</strong>
+              </div>
+              <div class="settings-row">
+                <span style="color: var(--text-muted);">Account Created:</span>
+                <strong id="settingsCreatedAt" style="color: var(--warm-ivory);">-</strong>
+              </div>
+              <div class="settings-row">
+                <span style="color: var(--text-muted);">Session Security:</span>
+                <span class="badge-pill jama">RFC 7914 scrypt</span>
+              </div>
+              <button type="button" class="btn-logout" style="width: 100%; margin-top: 18px; padding: 10px;" onclick="executeLogout()">
+                🚪 Log Out from Dukaan
+              </button>
+            </div>
+
+            <div class="settings-box">
+              <h3 style="font-size: 1.15rem; font-weight: 800; color: var(--warm-ivory); margin-bottom: 14px;">
+                ⚡ System & AI Configuration
+              </h3>
+              <div class="settings-row">
+                <span style="color: var(--text-muted);">AI Engine:</span>
+                <strong id="settingsAiEngine" style="color: var(--emerald-primary);">Google Gemma Active</strong>
+              </div>
+              <div class="settings-row">
+                <span style="color: var(--text-muted);">Database:</span>
+                <span style="color: var(--warm-ivory);">SQLite (Integer Paise Precision)</span>
+              </div>
+              <div class="settings-row">
+                <span style="color: var(--text-muted);">Timezone:</span>
+                <span style="color: var(--warm-ivory);">Asia/Kolkata (IST, UTC+05:30)</span>
+              </div>
+              <div class="settings-row">
+                <span style="color: var(--text-muted);">Acoustic Loop Gating:</span>
+                <span class="badge-pill jama">Active (600ms grace)</span>
+              </div>
+              <div class="settings-row">
+                <span style="color: var(--text-muted);">Continuous Voice:</span>
+                <span class="badge-pill jama">FSM 30s session</span>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+      </main>
+
+      <!-- Mobile Bottom Navigation Bar -->
+      <nav class="mobile-bottom-nav">
+        <button type="button" class="mobile-nav-btn active" id="mobNavDashboard" onclick="navigateTo('dashboard')">
+          <span class="mobile-nav-icon">📊</span>
+          <span>Home</span>
+        </button>
+        <button type="button" class="mobile-nav-btn" id="mobNavCustomers" onclick="navigateTo('customers')">
+          <span class="mobile-nav-icon">👥</span>
+          <span>Grahak</span>
+        </button>
+        <button type="button" class="mobile-nav-btn" id="mobNavNewEntry" onclick="navigateTo('new_entry')">
+          <span class="mobile-nav-icon">➕</span>
+          <span>Entry</span>
+        </button>
+        <button type="button" class="mobile-nav-btn" id="mobNavLedger" onclick="navigateTo('ledger')">
+          <span class="mobile-nav-icon">📜</span>
+          <span>Khata</span>
+        </button>
+        <button type="button" class="mobile-nav-btn" id="mobNavVoice" onclick="navigateTo('voice')">
+          <span class="mobile-nav-icon">🎙️</span>
+          <span>Suno Hisab</span>
+        </button>
+      </nav>
+
+    </div>
+  </div>
+
+
+  <!-- ========================================================================
+       GLOBAL MODALS & TOASTS
+       ======================================================================== -->
+  <!-- Customer Statement Drawer / Modal -->
+  <div id="customerDrawerOverlay" class="drawer-overlay" onclick="if(event.target===this) closeCustomerDrawer();">
+    <div class="drawer-modal-card">
+      <div class="drawer-header">
+        <div style="font-size: 1.15rem; font-weight: 800; color: var(--warm-ivory);" id="drawerCustTitle">Customer Statement</div>
+        <button type="button" class="btn-logout" onclick="closeCustomerDrawer()">✕ Close</button>
+      </div>
+      <div class="drawer-body" id="drawerCustBody">
+        Loading...
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="appToast" class="app-toast"></div>
+
+
+  <!-- ========================================================================
+       MASTER JAVASCRIPT CONTROLLER
+       ======================================================================== -->
+  <script>
+    /**
+     * HisabAI Master Application & Audio Engine
+     * Strict Dark Emerald Architecture
+     */
+
+    // --- State & Session ---
+    let currentUser = null;
+    let currentView = 'dashboard';
+    let currentEntryType = 'UDHAAR';
+    let customerDirectoryCache = [];
+    let customerSearchDebounceTimer = null;
+
+    // --- Ledger State ---
+    let ledgerCurrentPage = 1;
+    let ledgerCurrentPreset = 'this_month';
+
+    // --- Voice Assistant FSM & Audio ---
+    const FSM_STATES = {
+      SLEEPING: 'SLEEPING',
+      LISTENING_IDLE: 'LISTENING_IDLE',
+      WAKE_WORD_DETECTED: 'WAKE_WORD_DETECTED',
+      CAPTURING_COMMAND: 'CAPTURING_COMMAND',
+      PROCESSING: 'PROCESSING',
+      AWAITING_CONFIRMATION: 'AWAITING_CONFIRMATION',
+      SPEAKING: 'SPEAKING',
+      ERROR_RECOVERY: 'ERROR_RECOVERY'
+    };
+
+    let fsmCurrentState = FSM_STATES.SLEEPING;
+    let speechRecognizer = null;
+    let isContinuousVoiceEnabled = false;
+    let isTtsSpeaking = false;
+    let ignoreSpeechTimestamp = 0;       // 600ms grace window for acoustic loop immunity
+    let isTtsMuted = false;
+    let voiceSessionId = "session_" + Math.random().toString(36).substring(2, 10);
+    let activePendingOperation = null;
+    let userSpeechBuffer = '';
+    let captureTimerId = null;
+    let voiceCommandInFlight = false;
+    let cachedHindiVoice = null;
+
+    // Continuous Conversation Session (30s inactivity timeout)
+    let isConversationSessionActive = false;
+    let conversationSessionTimeoutId = null;
+    const CONVERSATION_TIMEOUT_MS = 30000;
+
+    // --- 1. BOOTSTRAP & AUTH LIFECYCLE ---
+    let googleClientId = null;
+    let isGoogleGsiInitialized = false;
+
+    window.addEventListener('DOMContentLoaded', async () => {
+      startClock();
+      setupSpeechRecognition();
+      checkSystemHealth();
+      initGoogleAuth();
+      await verifySessionOnLoad();
+    });
+
+    // Initialize Google OAuth (Google Identity Services)
+    async function initGoogleAuth() {
+      try {
+        const resp = await fetch('/api/auth/google-client-id');
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data && data.client_id) {
+            googleClientId = data.client_id;
+            setupGsiClient();
+          }
+        }
+      } catch (err) {
+        console.warn("Could not retrieve Google Client ID:", err);
+      }
+    }
+
+    function setupGsiClient() {
+      if (!window.google || !window.google.accounts || !window.google.accounts.id) {
+        // Retry after short delay if script is still loading
+        setTimeout(setupGsiClient, 200);
+        return;
+      }
+      try {
+        window.google.accounts.id.initialize({
+          client_id: googleClientId,
+          callback: handleGoogleCredentialResponse,
+          auto_select: false,
+          cancel_on_tap_outside: true
+        });
+        isGoogleGsiInitialized = true;
+      } catch (e) {
+        console.warn("GIS initialization error:", e);
+      }
+    }
+
+    function handleGoogleSignInClick() {
+      const errBox = document.getElementById('authErrorDisplay');
+      errBox.style.display = 'none';
+
+      if (!googleClientId) {
+        errBox.textContent = "Google Sign-In setup: Kripya .env file mein GOOGLE_CLIENT_ID darj karein.";
+        errBox.style.display = 'block';
+        showToast("GOOGLE_CLIENT_ID not configured in .env", "warning");
+        return;
+      }
+
+      if (window.google && window.google.accounts && window.google.accounts.id) {
+        if (!isGoogleGsiInitialized) {
+          setupGsiClient();
+        }
+        window.google.accounts.id.prompt((notification) => {
+          if (notification.isNotDisplayed()) {
+            console.warn("Google One Tap not displayed:", notification.getNotDisplayedReason());
+            errBox.textContent = "Google Sign-In prompt open nahi ho saka. Kripya browser popups check karein.";
+            errBox.style.display = 'block';
+          } else if (notification.isSkippedMoment()) {
+            console.log("Google One Tap skipped:", notification.getSkippedReason());
+          }
+        });
+      } else {
+        errBox.textContent = "Google Identity SDK load ho raha hai, kripya 2 second baad dobara koshish karein.";
+        errBox.style.display = 'block';
+      }
+    }
+
+    async function handleGoogleCredentialResponse(response) {
+      const errBox = document.getElementById('authErrorDisplay');
+      const customBtn = document.getElementById('googleCustomBtn');
+      errBox.style.display = 'none';
+
+      if (!response || !response.credential) {
+        errBox.textContent = "Google authorization token prapt nahi hua.";
+        errBox.style.display = 'block';
+        return;
+      }
+
+      if (customBtn) customBtn.disabled = true;
+
+      try {
+        const resp = await fetch('/api/auth/google', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ credential: response.credential })
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          throw new Error(data.detail || "Google authentication failed");
+        }
+
+        onAuthenticationSuccess(data.user);
+        showToast(`Google login safal! Swagatam ${data.user.shop_name}`, 'success');
+      } catch (err) {
+        errBox.textContent = err.message;
+        errBox.style.display = 'block';
+      } finally {
+        if (customBtn) customBtn.disabled = false;
+      }
+    }
+
+    function checkPasswordMatch() {
+      const p1 = document.getElementById('signupPassword').value;
+      const p2 = document.getElementById('signupConfirmPassword').value;
+      const hint = document.getElementById('signupPasswordMatchHint');
+
+      if (!p2) {
+        hint.style.display = 'none';
+        hint.className = 'password-match-hint';
+        return true;
+      }
+
+      if (p1 === p2) {
+        hint.textContent = '✓ Passwords match';
+        hint.className = 'password-match-hint valid';
+        return true;
+      } else {
+        hint.textContent = '✗ Passwords do not match';
+        hint.className = 'password-match-hint invalid';
+        return false;
+      }
+    }
+
+    // Real-time IST Clock
+    function startClock() {
+      const clockEl = document.getElementById('istClockText');
+      function update() {
+        const now = new Date();
+        const options = {
+          timeZone: 'Asia/Kolkata',
+          day: 'numeric',
+          month: 'short',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+        };
+        clockEl.textContent = now.toLocaleString('en-IN', options) + " IST";
+      }
+      update();
+      setInterval(update, 1000);
+    }
+
+    // Verify Session using /api/auth/me
+    async function verifySessionOnLoad() {
+      try {
+        const resp = await fetch('/api/auth/me');
+        if (resp.ok) {
+          const user = await resp.json();
+          onAuthenticationSuccess(user);
+        } else {
+          showAuthScreen();
+        }
+      } catch (err) {
+        showAuthScreen();
+      }
+    }
+
+    function showAuthScreen() {
+      currentUser = null;
+      document.getElementById('authViewport').style.display = 'flex';
+      document.getElementById('appLayout').classList.remove('active');
+    }
+
+    function onAuthenticationSuccess(user) {
+      currentUser = user;
+      document.getElementById('authViewport').style.display = 'none';
+      document.getElementById('appLayout').classList.add('active');
+
+      // Update sidebar & profile labels
+      document.getElementById('sidebarShopPill').textContent = user.shop_name;
+      document.getElementById('sidebarUserName').textContent = user.username;
+      document.getElementById('bannerGreeting').textContent = `Swagatam, ${user.shop_name}!`;
+      document.getElementById('settingsShopName').textContent = user.shop_name;
+      document.getElementById('settingsUsername').textContent = user.username;
+      document.getElementById('settingsCreatedAt').textContent = user.created_at || 'Active';
+
+      navigateTo('dashboard');
+      fetchDashboardData();
+      fetchCustomerDirectory();
+    }
+
+    // Auth Form Handlers
+    function switchAuthMode(mode) {
+      document.getElementById('authErrorDisplay').style.display = 'none';
+      if (mode === 'login') {
+        document.getElementById('authTabLogin').classList.add('active');
+        document.getElementById('authTabSignup').classList.remove('active');
+        document.getElementById('authLoginForm').style.display = 'block';
+        document.getElementById('authSignupForm').style.display = 'none';
+      } else {
+        document.getElementById('authTabLogin').classList.remove('active');
+        document.getElementById('authTabSignup').classList.add('active');
+        document.getElementById('authLoginForm').style.display = 'none';
+        document.getElementById('authSignupForm').style.display = 'block';
+      }
+    }
+
+    function togglePasswordVisibility(inputId) {
+      const inp = document.getElementById(inputId);
+      inp.type = inp.type === 'password' ? 'text' : 'password';
+    }
+
+    async function handleAuthLogin(event) {
+      event.preventDefault();
+      const username = document.getElementById('loginUsername').value.trim();
+      const password = document.getElementById('loginPassword').value;
+      const btn = document.getElementById('loginSubmitBtn');
+      const errBox = document.getElementById('authErrorDisplay');
+
+      errBox.style.display = 'none';
+      btn.disabled = true;
+      btn.innerHTML = '<span>Verifying...</span>';
+
+      try {
+        const resp = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || "Login failed");
+
+        onAuthenticationSuccess(data.user);
+        showToast(`Welcome back, ${data.user.username}!`, 'success');
+      } catch (err) {
+        errBox.textContent = err.message;
+        errBox.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<span>Login Karein ➔</span>';
+      }
+    }
+
+    async function handleAuthSignup(event) {
+      event.preventDefault();
+      const shop_name = document.getElementById('signupShopName').value.trim();
+      const owner_name = (document.getElementById('signupOwnerName').value || '').trim();
+      const email = document.getElementById('signupEmail').value.trim();
+      const password = document.getElementById('signupPassword').value;
+      const confirm_password = document.getElementById('signupConfirmPassword').value;
+      const btn = document.getElementById('signupSubmitBtn');
+      const errBox = document.getElementById('authErrorDisplay');
+
+      errBox.style.display = 'none';
+
+      if (password !== confirm_password) {
+        errBox.textContent = "Passwords match nahi kar rahe hain. Kripya dono password ek jaise bharein.";
+        errBox.style.display = 'block';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<span>Registering...</span>';
+
+      try {
+        const resp = await fetch('/api/auth/signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            shop_name,
+            owner_name: owner_name || shop_name,
+            email,
+            password,
+            confirm_password
+          })
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || "Registration failed");
+
+        onAuthenticationSuccess(data.user);
+        showToast(`Dukaan "${data.user.shop_name}" register ho gayi!`, 'success');
+      } catch (err) {
+        errBox.textContent = err.message;
+        errBox.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<span>Dukaan Register Karein ➔</span>';
+      }
+    }
+
+    async function executeLogout() {
+      try {
+        await fetch('/api/auth/logout', { method: 'POST' });
+      } catch (e) {}
+      showAuthScreen();
+      showToast("Logged out successfully.", "success");
+    }
+
+    // --- 2. NAVIGATION CONTROLLER (7 Working Views) ---
+    function navigateTo(viewId) {
+      currentView = viewId;
+
+      // Update sidebar nav items
+      document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.mobile-nav-btn').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.subview').forEach(el => el.classList.remove('active'));
+
+      const titles = {
+        dashboard: "📊 Dashboard",
+        customers: "👥 Grahak Directory",
+        new_entry: "➕ Nayi Khata Entry",
+        ledger: "📜 Bahi-Khata (Ledger)",
+        voice: "🎙️ Suno Hisab Voice Hub",
+        reports: "📈 Reports & Analytics",
+        settings: "⚙️ Shop Settings"
+      };
+
+      document.getElementById('pageTitleDisplay').textContent = titles[viewId] || "HisabAI";
+
+      // Activate desktop & mobile navs
+      const navMap = {
+        dashboard: ['navDashboard', 'mobNavDashboard', 'subviewDashboard'],
+        customers: ['navCustomers', 'mobNavCustomers', 'subviewCustomers'],
+        new_entry: ['navNewEntry', 'mobNavNewEntry', 'subviewNewEntry'],
+        ledger: ['navLedger', 'mobNavLedger', 'subviewLedger'],
+        voice: ['navVoice', 'mobNavVoice', 'subviewVoice'],
+        reports: ['navReports', null, 'subviewReports'],
+        settings: ['navSettings', null, 'subviewSettings']
+      };
+
+      const [deskNav, mobNav, subview] = navMap[viewId] || [];
+      if (deskNav && document.getElementById(deskNav)) document.getElementById(deskNav).classList.add('active');
+      if (mobNav && document.getElementById(mobNav)) document.getElementById(mobNav).classList.add('active');
+      if (subview && document.getElementById(subview)) document.getElementById(subview).classList.add('active');
+
+      // Close mobile sidebar if open
+      document.getElementById('appSidebar').classList.remove('open');
+
+      // Fetch fresh view-specific data
+      if (viewId === 'dashboard') fetchDashboardData();
+      else if (viewId === 'customers') fetchCustomerDirectory();
+      else if (viewId === 'ledger') fetchLedgerData(1);
+      else if (viewId === 'reports') fetchReportsData();
+    }
+
+    function toggleMobileSidebar() {
+      document.getElementById('appSidebar').classList.toggle('open');
+    }
+
+    // --- 3. DASHBOARD CONTROLLER ---
+    async function fetchDashboardData() {
+      try {
+        const resp = await fetch('/api/summary');
+        if (!resp.ok) throw new Error("Could not fetch daily summary");
+        const data = await resp.json();
+
+        // Cards
+        document.getElementById('dashUdhaarVal').textContent = `₹${Number(data.total_udhaar_today).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+        document.getElementById('dashJamaVal').textContent = `₹${Number(data.total_jama_today).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+
+        const net = Number(data.net_today);
+        const prefix = net > 0 ? '+₹' : (net < 0 ? '-₹' : '₹');
+        document.getElementById('dashNetVal').textContent = `${prefix}${Math.abs(net).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+        document.getElementById('dashNetSub').textContent = net > 0 ? 'Net Udhaar increase today' : (net < 0 ? 'Net Jama collection today' : 'No net change');
+
+        // Render Today's entries
+        const txContainer = document.getElementById('dashTxList');
+        const txs = data.transactions || [];
+        if (txs.length === 0) {
+          txContainer.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 24px;">Aaj abhi tak koi transaction record nahi hui. Speak or add above!</div>';
+        } else {
+          let html = '';
+          txs.forEach(t => {
+            const isU = t.transaction_type === 'UDHAAR';
+            const badgeClass = isU ? 'udhaar' : 'jama';
+            const sign = isU ? '-' : '+';
+            const dateObj = new Date(t.timestamp);
+            const timeStr = dateObj.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true });
+
+            html += `
+              <div class="tx-feed-row">
+                <div class="tx-feed-left">
+                  <div class="tx-cust-name">${escapeHtml(t.customer_name)}</div>
+                  <div class="tx-time-stamp">${timeStr} • ${escapeHtml(t.raw_text || '')}</div>
+                </div>
+                <div class="tx-feed-right">
+                  <span class="badge-pill ${badgeClass}">${t.transaction_type}</span>
+                  <div class="tx-amount-display ${badgeClass}">${sign}₹${Number(t.amount).toFixed(2)}</div>
+                </div>
+              </div>
+            `;
+          });
+          txContainer.innerHTML = html;
+        }
+
+        // Also refresh customer count snapshot
+        fetchCustomerSnapshot();
+
+      } catch (err) {
+        console.error("Dashboard fetch error:", err);
+      }
+    }
+
+    async function fetchCustomerSnapshot() {
+      try {
+        const resp = await fetch('/api/customers');
+        if (!resp.ok) return;
+        const data = await resp.json();
+
+        document.getElementById('dashCustomersCount').textContent = data.total_customers;
+        const debtors = (data.customers || []).filter(c => Number(c.outstanding_balance) > 0);
+        document.getElementById('dashDebtorsCount').textContent = `${debtors.length} grahak with Baqaya`;
+
+        // Render top debtors in dashboard right pane
+        const container = document.getElementById('dashTopDebtorsList');
+        if (debtors.length === 0) {
+          container.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 24px;">Sabhi khate clear hain!</div>';
+        } else {
+          let html = '';
+          debtors.slice(0, 5).forEach(c => {
+            html += `
+              <div class="tx-feed-row">
+                <div class="tx-feed-left">
+                  <div class="tx-cust-name">${escapeHtml(c.customer_name)}</div>
+                  <div class="tx-time-stamp">${c.total_transactions} entries • Last: ${c.last_transaction_date || 'N/A'}</div>
+                </div>
+                <div class="tx-feed-right">
+                  <span class="badge-pill udhaar">Baqaya ₹${Number(c.outstanding_balance).toFixed(2)}</span>
+                  <button type="button" class="table-btn-action" onclick="openCustomerDrawer('${escapeHtml(c.customer_name)}')">Khata</button>
+                </div>
+              </div>
+            `;
+          });
+          container.innerHTML = html;
+        }
+      } catch (e) {}
+    }
+
+    // --- 4. CUSTOMERS DIRECTORY CONTROLLER ---
+    function handleCustomerSearchInput() {
+      if (customerSearchDebounceTimer) clearTimeout(customerSearchDebounceTimer);
+      customerSearchDebounceTimer = setTimeout(() => {
+        fetchCustomerDirectory();
+      }, 300);
+    }
+
+    async function fetchCustomerDirectory() {
+      const q = document.getElementById('customerSearchField')?.value.trim() || '';
+      const tbody = document.getElementById('customersTableBody');
+      try {
+        let url = '/api/customers';
+        if (q) url += `?q=${encodeURIComponent(q)}`;
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error("Could not fetch customer directory");
+        const data = await resp.json();
+
+        customerDirectoryCache = data.customers || [];
+        updateCustomerDatalist(customerDirectoryCache);
+
+        if (customerDirectoryCache.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 28px;">No customers found${q ? ` matching "${escapeHtml(q)}"` : ''}.</td></tr>`;
+          return;
+        }
+
+        let html = '';
+        customerDirectoryCache.forEach(c => {
+          const bal = Number(c.outstanding_balance);
+          let badgeClass = 'neutral';
+          if (bal > 0) badgeClass = 'udhaar';
+          else if (bal < 0) badgeClass = 'jama';
+
+          html += `
+            <tr>
+              <td><strong>${escapeHtml(c.customer_name)}</strong></td>
+              <td><span class="badge-pill ${badgeClass}">${escapeHtml(c.status_label)}</span></td>
+              <td style="font-weight: 800; color: ${bal > 0 ? 'var(--udhaar-red)' : 'var(--warm-ivory)'};">₹${Math.abs(bal).toFixed(2)}</td>
+              <td style="color: var(--udhaar-red); font-weight: 700;">₹${Number(c.lifetime_udhaar).toFixed(2)}</td>
+              <td style="color: var(--jama-green); font-weight: 700;">₹${Number(c.lifetime_jama).toFixed(2)}</td>
+              <td>${c.total_transactions}</td>
+              <td style="font-size: 0.8rem; color: var(--text-muted);">${c.last_transaction_date || 'N/A'}</td>
+              <td>
+                <button type="button" class="table-btn-action" onclick="openCustomerDrawer('${escapeHtml(c.customer_name)}')">
+                  Hisaab Dekhein ➔
+                </button>
+              </td>
+            </tr>
+          `;
+        });
+        tbody.innerHTML = html;
+
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--udhaar-red); padding: 28px;">Error: ${escapeHtml(err.message)}</td></tr>`;
+      }
+    }
+
+    function updateCustomerDatalist(customers) {
+      const datalist = document.getElementById('customerNameDatalist');
+      if (!datalist) return;
+      let html = '';
+      customers.forEach(c => {
+        html += `<option value="${escapeHtml(c.customer_name)}">`;
+      });
+      datalist.innerHTML = html;
+    }
+
+    // Customer Statement Modal
+    async function openCustomerDrawer(customerName) {
+      const overlay = document.getElementById('customerDrawerOverlay');
+      const title = document.getElementById('drawerCustTitle');
+      const body = document.getElementById('drawerCustBody');
+
+      overlay.style.display = 'flex';
+      title.textContent = `${customerName} — Khata Summary`;
+      body.innerHTML = '<div style="text-align: center; padding: 24px; color: var(--text-muted);">Loading statement...</div>';
+
+      try {
+        const resp = await fetch(`/api/customer/${encodeURIComponent(customerName)}`);
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || "Grahak statement nahi mila");
+
+        let txList = '';
+        if (data.transaction_history && data.transaction_history.length > 0) {
+          data.transaction_history.forEach(h => {
+            const isU = h.transaction_type === 'UDHAAR';
+            const color = isU ? 'var(--udhaar-red)' : 'var(--jama-green)';
+            const d = new Date(h.timestamp).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' });
+            txList += `
+              <div class="tx-feed-row" style="margin-bottom: 8px;">
+                <div>
+                  <div style="font-weight: 700;">${d} • ${h.transaction_type}</div>
+                  <div style="font-size: 0.78rem; color: var(--text-muted);">${escapeHtml(h.raw_text || '')}</div>
+                </div>
+                <strong style="color: ${color}; font-size: 1.05rem;">₹${Number(h.amount).toFixed(2)}</strong>
+              </div>
+            `;
+          });
+        } else {
+          txList = '<div style="color: var(--text-muted);">No transaction records found.</div>';
+        }
+
+        body.innerHTML = `
+          <div style="display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap;">
+            <div class="ledger-stat-box" style="flex: 1;">
+              <div style="font-size: 0.72rem; color: var(--text-muted);">STATUS</div>
+              <strong style="font-size: 1.15rem; color: var(--warm-ivory);">${escapeHtml(data.status_label)}</strong>
+            </div>
+            <div class="ledger-stat-box" style="flex: 1;">
+              <div style="font-size: 0.72rem; color: var(--text-muted);">TOTAL UDHAAR</div>
+              <strong style="font-size: 1.15rem; color: var(--udhaar-red);">₹${Number(data.lifetime_udhaar).toFixed(2)}</strong>
+            </div>
+            <div class="ledger-stat-box" style="flex: 1;">
+              <div style="font-size: 0.72rem; color: var(--text-muted);">TOTAL JAMA</div>
+              <strong style="font-size: 1.15rem; color: var(--jama-green);">₹${Number(data.lifetime_jama).toFixed(2)}</strong>
+            </div>
+          </div>
+          <div style="font-weight: 800; font-size: 0.95rem; margin-bottom: 12px; color: var(--warm-ivory);">Complete Transaction Statement:</div>
+          <div>${txList}</div>
+        `;
+      } catch (err) {
+        body.innerHTML = `<div style="color: var(--udhaar-red); text-align: center; padding: 24px;">${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    function closeCustomerDrawer() {
+      document.getElementById('customerDrawerOverlay').style.display = 'none';
+    }
+
+    // --- 5. NAYA ENTRY (NEW TRANSACTION ENTRY FORM) ---
+    function openNewEntryWithMode(mode) {
+      selectEntryType(mode);
+      navigateTo('new_entry');
+      document.getElementById('entryCustomerName').focus();
+    }
+
+    function selectEntryType(type) {
+      currentEntryType = type;
+      const bUdhaar = document.getElementById('choiceUdhaar');
+      const bJama = document.getElementById('choiceJama');
+
+      if (type === 'UDHAAR') {
+        bUdhaar.className = 'type-choice-btn selected-udhaar';
+        bJama.className = 'type-choice-btn';
+      } else {
+        bUdhaar.className = 'type-choice-btn';
+        bJama.className = 'type-choice-btn selected-jama';
+      }
+    }
+
+    function addAmountPreset(amount) {
+      const inp = document.getElementById('entryAmount');
+      const cur = parseFloat(inp.value) || 0;
+      inp.value = (cur + amount).toFixed(2);
+    }
+
+    async function handleManualTransactionSubmit(event) {
+      event.preventDefault();
+      const customer_name = document.getElementById('entryCustomerName').value.trim();
+      const amount = parseFloat(document.getElementById('entryAmount').value);
+      const notes = document.getElementById('entryNotes').value.trim();
+      const btn = document.getElementById('submitEntryBtn');
+
+      if (!customer_name || !amount || amount <= 0) {
+        showToast("Kripya customer name aur valid amount daalein", "error");
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<span>Saving to Khata...</span>';
+
+      try {
+        const payload = {
+          customer_name: customer_name,
+          amount: amount,
+          transaction_type: currentEntryType,
+          raw_text: notes || (currentEntryType === 'UDHAAR' ? `${customer_name} ka ₹${amount} udhaar` : `${customer_name} ne ₹${amount} jama kiye`)
+        };
+
+        const resp = await fetch('/api/transactions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || "Transaction save nahi ho payi");
+
+        showToast(`✓ ₹${amount.toFixed(2)} ${currentEntryType} successfully saved for ${customer_name}!`, "success");
+        
+        // Reset form
+        document.getElementById('entryAmount').value = '';
+        document.getElementById('entryNotes').value = '';
+        document.getElementById('entryCustomerName').focus();
+
+        // Refresh directory & dashboard data
+        fetchDashboardData();
+        fetchCustomerDirectory();
+      } catch (err) {
+        showToast(err.message, "error");
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<span>✓ Khata Mein Save Karein</span>';
+      }
+    }
+
+    // --- 6. BAHI-KHATA (LEDGER HISTORY) CONTROLLER ---
+    function selectLedgerPreset(preset) {
+      ledgerCurrentPreset = preset;
+      document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+
+      if (preset === 'this_month') document.getElementById('chipMonth').classList.add('active');
+      else if (preset === 'today') document.getElementById('chipToday').classList.add('active');
+      else if (preset === 'yesterday') document.getElementById('chipYesterday').classList.add('active');
+      else if (preset === 'this_week') document.getElementById('chipWeek').classList.add('active');
+      else if (preset === 'all') document.getElementById('chipAll').classList.add('active');
+
+      document.getElementById('ledgerStartDate').value = '';
+      document.getElementById('ledgerEndDate').value = '';
+      fetchLedgerData(1);
+    }
+
+    async function fetchLedgerData(page = 1) {
+      ledgerCurrentPage = page;
+      const tbody = document.getElementById('ledgerTableBody');
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">Loading ledger records...</td></tr>';
+
+      const type = document.getElementById('ledgerFilterType').value;
+      const customer = document.getElementById('ledgerFilterCustomer').value.trim();
+      const startDate = document.getElementById('ledgerStartDate').value;
+      const endDate = document.getElementById('ledgerEndDate').value;
+
+      let url = `/api/ledger?page=${page}&page_size=25`;
+      if (startDate || endDate) {
+        if (startDate) url += `&start_date=${startDate}`;
+        if (endDate) url += `&end_date=${endDate}`;
+      } else if (ledgerCurrentPreset && ledgerCurrentPreset !== 'all') {
+        url += `&preset=${ledgerCurrentPreset}`;
+      }
+      if (type) url += `&type=${type}`;
+      if (customer) url += `&customer=${encodeURIComponent(customer)}`;
+
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error("Could not load ledger data");
+        const data = await resp.json();
+
+        // Period Stats
+        document.getElementById('statPeriodUdhaar').textContent = `₹${Number(data.total_udhaar).toFixed(2)}`;
+        document.getElementById('statPeriodJama').textContent = `₹${Number(data.total_jama).toFixed(2)}`;
+        const net = Number(data.net_balance);
+        const prefix = net > 0 ? '+₹' : (net < 0 ? '-₹' : '₹');
+        document.getElementById('statPeriodNet').textContent = `${prefix}${Math.abs(net).toFixed(2)}`;
+        document.getElementById('statPeriodCount').textContent = data.total_records;
+
+        // Render Table
+        const txs = data.transactions || [];
+        if (txs.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">No ledger entries found for this filter.</td></tr>';
+        } else {
+          let html = '';
+          txs.forEach(t => {
+            const isU = t.transaction_type === 'UDHAAR';
+            const badgeClass = isU ? 'udhaar' : 'jama';
+            const color = isU ? 'var(--udhaar-red)' : 'var(--jama-green)';
+            const rb = Number(t.running_balance);
+
+            html += `
+              <tr>
+                <td style="white-space: nowrap; font-size: 0.82rem;">${t.timestamp_ist}</td>
+                <td><strong>${escapeHtml(t.customer_name)}</strong></td>
+                <td><span class="badge-pill ${badgeClass}">${t.transaction_type}</span></td>
+                <td style="font-size: 0.82rem; color: var(--text-muted);">${escapeHtml(t.raw_text || '-')}</td>
+                <td style="font-weight: 800; color: ${color};">₹${Number(t.amount).toFixed(2)}</td>
+                <td style="font-weight: 700; color: ${rb > 0 ? 'var(--udhaar-red)' : 'var(--jama-green)'};">
+                  ₹${Math.abs(rb).toFixed(2)} ${rb > 0 ? '(Dr)' : (rb < 0 ? '(Cr)' : '')}
+                </td>
+              </tr>
+            `;
+          });
+          tbody.innerHTML = html;
+        }
+
+        // Pagination
+        const totalPages = Math.max(1, Math.ceil(data.total_records / data.page_size));
+        document.getElementById('ledgerPageIndicator').textContent = `Page ${data.page} of ${totalPages}`;
+        document.getElementById('ledgerPrevBtn').disabled = data.page <= 1;
+        document.getElementById('ledgerNextBtn').disabled = data.page >= totalPages;
+
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--udhaar-red); padding: 24px;">${escapeHtml(err.message)}</td></tr>`;
+      }
+    }
+
+    function changeLedgerPage(delta) {
+      fetchLedgerData(ledgerCurrentPage + delta);
+    }
+
+    // --- 7. REPORTS & ANALYTICS CONTROLLER ---
+    async function fetchReportsData() {
+      try {
+        const resp = await fetch('/api/customers');
+        if (!resp.ok) return;
+        const data = await resp.json();
+
+        const custs = data.customers || [];
+        let totalDebt = 0;
+        let totalAdv = 0;
+        let clearCount = 0;
+        let debtorCount = 0;
+        let advanceCount = 0;
+
+        custs.forEach(c => {
+          const bal = Number(c.outstanding_balance);
+          if (bal > 0) {
+            totalDebt += bal;
+            debtorCount++;
+          } else if (bal < 0) {
+            totalAdv += Math.abs(bal);
+            advanceCount++;
+          } else {
+            clearCount++;
+          }
+        });
+
+        document.getElementById('reportMarketDebt').textContent = `₹${totalDebt.toFixed(2)}`;
+        document.getElementById('reportDebtorsCount').textContent = `Across ${debtorCount} customers`;
+        document.getElementById('reportAdvanceDeposit').textContent = `₹${totalAdv.toFixed(2)}`;
+        document.getElementById('reportAdvanceCount').textContent = `${advanceCount} grahak with advance deposit`;
+        document.getElementById('reportNetReceivable').textContent = `₹${(totalDebt - totalAdv).toFixed(2)}`;
+        document.getElementById('reportClearCount').textContent = clearCount;
+
+        // Visual comparison bar
+        const sumTotal = totalDebt + totalAdv;
+        const debtPct = sumTotal > 0 ? Math.round((totalDebt / sumTotal) * 100) : 50;
+        const advPct = sumTotal > 0 ? Math.round((totalAdv / sumTotal) * 100) : 50;
+
+        document.getElementById('analyticsUdhaarBar').style.width = `${debtPct}%`;
+        document.getElementById('analyticsJamaBar').style.width = `${advPct}%`;
+        document.getElementById('analyticsUdhaarVal').textContent = `₹${totalDebt.toFixed(2)}`;
+        document.getElementById('analyticsJamaVal').textContent = `₹${totalAdv.toFixed(2)}`;
+
+        // Top 5 debtors table
+        const sortedDebtors = [...custs].filter(c => Number(c.outstanding_balance) > 0).sort((a,b) => Number(b.outstanding_balance) - Number(a.outstanding_balance)).slice(0, 5);
+        const tbody = document.getElementById('analyticsDebtorsBody');
+
+        if (sortedDebtors.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 20px;">No customers with outstanding debt.</td></tr>';
+        } else {
+          let html = '';
+          sortedDebtors.forEach((c, idx) => {
+            html += `
+              <tr>
+                <td><strong>#${idx + 1}</strong></td>
+                <td><strong>${escapeHtml(c.customer_name)}</strong></td>
+                <td style="color: var(--udhaar-red); font-weight: 800;">₹${Number(c.outstanding_balance).toFixed(2)}</td>
+                <td>₹${Number(c.lifetime_udhaar).toFixed(2)}</td>
+                <td>${c.total_transactions}</td>
+                <td>${c.last_transaction_date || 'N/A'}</td>
+              </tr>
+            `;
+          });
+          tbody.innerHTML = html;
+        }
+
+      } catch (e) {
+        console.error("Reports error:", e);
+      }
+    }
+
+    // --- 8. SUNO HISAB VOICE ASSISTANT ENGINE (CONTINUOUS + ACOUSTIC LOOP IMMUNITY) ---
+    function setupSpeechRecognition() {
+      if (speechRecognizer) return;
+
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        document.getElementById('voiceStageCaption').textContent = "Voice speech not supported in this browser. Please use manual input.";
+        return;
+      }
+
+      speechRecognizer = new SpeechRecognition();
+      speechRecognizer.continuous = true;
+      speechRecognizer.interimResults = true;
+      speechRecognizer.lang = 'hi-IN';
+
+      speechRecognizer.onstart = () => {
+        console.log("Speech recognition online.");
+      };
+
+      speechRecognizer.onresult = (event) => {
+        // 100% ACOUSTIC LOOP GATING: Block recognition if assistant is speaking or inside 600ms grace window
+        if (isTtsSpeaking || Date.now() < ignoreSpeechTimestamp) {
+          console.log("[Acoustic Immunity] Gated speech feedback from assistant TTS.");
+          return;
+        }
+
+        let interim = '';
+        let final = '';
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const piece = event.results[i][0].transcript;
+          if (event.results[i].isFinal) final += piece;
+          else interim += piece;
+        }
+
+        const heard = (final || interim).trim();
+        if (!heard) return;
+
+        processVoiceStream(heard, Boolean(final));
+      };
+
+      speechRecognizer.onerror = (event) => {
+        console.warn("Speech recognition error:", event.error);
+        if (event.error === 'not-allowed') {
+          showToast("Microphone permission denied. Grant access in browser settings.", "error");
+          stopContinuousVoice();
+        }
+      };
+
+      speechRecognizer.onend = () => {
+        if (isContinuousVoiceEnabled && !isTtsSpeaking && Date.now() >= ignoreSpeechTimestamp) {
+          setTimeout(() => {
+            if (isContinuousVoiceEnabled && !isTtsSpeaking) {
+              try { speechRecognizer.start(); } catch (e) {}
+            }
+          }, 150);
+        }
+      };
+
+      // Best Hindi Voice Cache
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.onvoiceschanged = cacheHindiVoice;
+        cacheHindiVoice();
+      }
+    }
+
+    function cacheHindiVoice() {
+      if (!('speechSynthesis' in window)) return;
+      const voices = window.speechSynthesis.getVoices();
+      cachedHindiVoice = voices.find(v => v.lang.startsWith('hi') || v.lang.includes('IN')) || null;
+    }
+
+    function updateFsmBadge(state, label = "") {
+      fsmCurrentState = state;
+      const bDot = document.getElementById('voiceFsmDot');
+      const bText = document.getElementById('voiceFsmText');
+      const micBtn = document.getElementById('voiceMicBtn');
+      const caption = document.getElementById('voiceStageCaption');
+
+      micBtn.className = 'mic-large-btn';
+
+      switch (state) {
+        case FSM_STATES.SLEEPING:
+          bDot.textContent = '⚪';
+          bText.textContent = 'OFFLINE (TAP MIC)';
+          caption.textContent = 'Tap microphone to start "Suno Hisab"';
+          break;
+        case FSM_STATES.LISTENING_IDLE:
+          bDot.textContent = '🟢';
+          bText.textContent = isConversationSessionActive ? 'CONVERSATION ACTIVE' : 'READY • "Suno Hisab"';
+          micBtn.classList.add('listening');
+          caption.textContent = isConversationSessionActive ? 'Boliye, main sun raha hoon (बिना Wake Word)...' : 'Listening for "Suno Hisab"...';
+          break;
+        case FSM_STATES.WAKE_WORD_DETECTED:
+          bDot.textContent = '🔵';
+          bText.textContent = 'WAKE WORD HEARD';
+          micBtn.classList.add('capturing');
+          caption.textContent = 'Haan ji! Boliye...';
+          break;
+        case FSM_STATES.CAPTURING_COMMAND:
+          bDot.textContent = '🟠';
+          bText.textContent = 'RECORDING COMMAND';
+          micBtn.classList.add('capturing');
+          caption.textContent = 'Listening to command...';
+          break;
+        case FSM_STATES.PROCESSING:
+          bDot.textContent = '🟣';
+          bText.textContent = 'AI PROCESSING';
+          caption.textContent = 'HisabAI is thinking with Gemma...';
+          break;
+        case FSM_STATES.AWAITING_CONFIRMATION:
+          bDot.textContent = '⚠️';
+          bText.textContent = 'CONFIRM TRANSACTION';
+          caption.textContent = 'Please confirm: Say "Haan" or "Nahi"';
+          break;
+        case FSM_STATES.SPEAKING:
+          bDot.textContent = '🔊';
+          bText.textContent = 'SPEAKING REPLY';
+          micBtn.classList.add('speaking');
+          caption.textContent = 'HisabAI is speaking... (Mic muted)';
+          break;
+        case FSM_STATES.ERROR_RECOVERY:
+          bDot.textContent = '❌';
+          bText.textContent = 'RETRYING';
+          caption.textContent = label || 'Could not understand, try again!';
+          setTimeout(() => {
+            if (isContinuousVoiceEnabled) updateFsmBadge(FSM_STATES.LISTENING_IDLE);
+            else updateFsmBadge(FSM_STATES.SLEEPING);
+          }, 2500);
+          break;
+      }
+    }
+
+    // Continuous Session Management
+    function startConversationSession() {
+      isConversationSessionActive = true;
+      document.getElementById('voiceSessionPill').style.display = 'inline-flex';
+      resetConversationSessionTimer();
+    }
+
+    function resetConversationSessionTimer() {
+      if (conversationSessionTimeoutId) clearTimeout(conversationSessionTimeoutId);
+      conversationSessionTimeoutId = setTimeout(() => {
+        isConversationSessionActive = false;
+        document.getElementById('voiceSessionPill').style.display = 'none';
+        if (isContinuousVoiceEnabled) updateFsmBadge(FSM_STATES.LISTENING_IDLE);
+      }, CONVERSATION_TIMEOUT_MS);
+    }
+
+    const WAKE_REGEX = /(?:^|\\b)(?:suno\\s*hisa+b|suno\\s*khata|\u0938\u0941\u0928\u094b\\s*\u0939\u093f\u0938\u093e+\u092c|\u0938\u0941\u0928\u094b\u0939\u093f\u0938\u093e\u092c)(?:[,;\\s:\\.-]*(.*))?$/i;
+    const EXIT_REGEX = /(?:band\\s*karo|alvida|shukriya|dhanyawad|theek\\s*hai\\s*bas|bye)/i;
+
+    function processVoiceStream(text, isFinal) {
+      if (voiceCommandInFlight) return;
+
+      // Close session command
+      if (isConversationSessionActive && isFinal && EXIT_REGEX.test(text)) {
+        isConversationSessionActive = false;
+        document.getElementById('voiceSessionPill').style.display = 'none';
+        speakAssistantResponse("Dhanyawad! Main standby mode mein hoon.");
+        return;
+      }
+
+      // Priority 1: Awaiting Confirmation ("Haan" / "Nahi")
+      if (fsmCurrentState === FSM_STATES.AWAITING_CONFIRMATION && isFinal) {
+        resetConversationSessionTimer();
+        const lower = text.toLowerCase();
+        if (lower.includes("haan") || lower.includes("yes") || lower.includes("confirm") || lower.includes("theek") || lower.includes("settle") || lower.includes("ha")) {
+          submitVoiceConfirmationChoice('confirm');
+          return;
+        }
+        if (lower.includes("nahi") || lower.includes("cancel") || lower.includes("mat karo") || lower.includes("radd")) {
+          submitVoiceConfirmationChoice('cancel');
+          return;
+        }
+        if (lower.includes("nahi") || lower.includes("badle") || lower.includes("jagah")) {
+          dispatchVoiceCommand(text, activePendingOperation?.operation_id);
+          return;
+        }
+      }
+
+      // Priority 2: Wake Word Detection
+      const wakeMatch = text.match(WAKE_REGEX);
+      if (wakeMatch) {
+        startConversationSession();
+        const remainder = (wakeMatch[1] || '').trim();
+
+        if (remainder && remainder.length > 2) {
+          userSpeechBuffer = remainder;
+          updateFsmBadge(FSM_STATES.CAPTURING_COMMAND);
+          if (isFinal) {
+            executeVoiceBuffer();
+          } else {
+            resetVoiceSilenceTimer();
+          }
+        } else {
+          updateFsmBadge(FSM_STATES.CAPTURING_COMMAND);
+          resetVoiceSilenceTimer(4000);
+        }
+        return;
+      }
+
+      // Priority 3: Active Continuous Conversation (NO WAKE WORD REQUIRED!)
+      if (isConversationSessionActive) {
+        resetConversationSessionTimer();
+        updateFsmBadge(FSM_STATES.CAPTURING_COMMAND);
+        userSpeechBuffer = text;
+        if (isFinal) {
+          executeVoiceBuffer();
+        } else {
+          resetVoiceSilenceTimer(2500);
+        }
+        return;
+      }
+
+      // If capturing without active session
+      if (fsmCurrentState === FSM_STATES.CAPTURING_COMMAND) {
+        userSpeechBuffer = text;
+        if (isFinal) executeVoiceBuffer();
+        else resetVoiceSilenceTimer();
+      }
+    }
+
+    function resetVoiceSilenceTimer(timeoutMs = 2500) {
+      if (captureTimerId) clearTimeout(captureTimerId);
+      captureTimerId = setTimeout(() => {
+        captureTimerId = null;
+        if (fsmCurrentState === FSM_STATES.CAPTURING_COMMAND) {
+          if (userSpeechBuffer && userSpeechBuffer.trim().length > 2) {
+            executeVoiceBuffer();
+          } else {
+            userSpeechBuffer = '';
+            if (isContinuousVoiceEnabled) updateFsmBadge(FSM_STATES.LISTENING_IDLE);
+          }
+        }
+      }, timeoutMs);
+    }
+
+    function executeVoiceBuffer() {
+      if (captureTimerId) { clearTimeout(captureTimerId); captureTimerId = null; }
+      const textToRun = userSpeechBuffer.trim();
+      userSpeechBuffer = '';
+      if (!textToRun || textToRun.length < 2) return;
+      dispatchVoiceCommand(textToRun, activePendingOperation?.operation_id);
+    }
+
+    async function dispatchVoiceCommand(text, pendingOpId = null, actionOverride = "process") {
+      voiceCommandInFlight = true;
+      updateFsmBadge(FSM_STATES.PROCESSING);
+
+      // Show dialogue bubble
+      document.getElementById('voiceDialogueBox').style.display = 'flex';
+      document.getElementById('userBubble').style.display = 'block';
+      document.getElementById('userBubbleText').textContent = text;
+
+      try {
+        const payload = {
+          text: text,
+          session_id: voiceSessionId,
+          pending_operation_id: pendingOpId,
+          action: actionOverride
+        };
+
+        const resp = await fetch('/api/voice-assistant', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || "Voice command processing failed");
+
+        // Assistant reply display
+        document.getElementById('assistantBubble').style.display = 'block';
+        document.getElementById('assistantBubbleText').textContent = data.reply_message;
+
+        startConversationSession();
+
+        if (data.requires_confirmation && data.pending_operation) {
+          activePendingOperation = data.pending_operation;
+          renderVoiceConfirmCard(data.pending_operation);
+          updateFsmBadge(FSM_STATES.AWAITING_CONFIRMATION);
+        } else {
+          document.getElementById('voiceConfirmCard').style.display = 'none';
+          if (data.action_taken === 'committed_transaction') {
+            activePendingOperation = null;
+            showToast("✓ Saved to Khata successfully!", "success");
+            fetchDashboardData();
+          } else if (data.action_taken === 'cancelled') {
+            activePendingOperation = null;
+            showToast("Transaction cancelled.", "error");
+          }
+        }
+
+        speakAssistantResponse(data.reply_message, () => {
+          if (data.requires_confirmation) updateFsmBadge(FSM_STATES.AWAITING_CONFIRMATION);
+          else if (isContinuousVoiceEnabled) updateFsmBadge(FSM_STATES.LISTENING_IDLE);
+          else updateFsmBadge(FSM_STATES.SLEEPING);
+        });
+
+      } catch (err) {
+        showToast(err.message, "error");
+        updateFsmBadge(FSM_STATES.ERROR_RECOVERY, err.message);
+      } finally {
+        voiceCommandInFlight = false;
+      }
+    }
+
+    // SpeechSynthesis TTS with 100% ACOUSTIC LOOP IMMUNITY
+    function speakAssistantResponse(text, onComplete) {
+      if (isTtsMuted || !('speechSynthesis' in window)) {
+        if (onComplete) onComplete();
+        return;
+      }
+
+      // CRITICAL STEP 1: Immediately abort speech recognition so it NEVER hears itself
+      isTtsSpeaking = true;
+      if (speechRecognizer) {
+        try { speechRecognizer.abort(); } catch (e) {}
+      }
+      updateFsmBadge(FSM_STATES.SPEAKING);
+
+      if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+        window.speechSynthesis.cancel();
+      }
+
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'hi-IN';
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+
+      if (cachedHindiVoice) utterance.voice = cachedHindiVoice;
+
+      const finishPlayback = () => {
+        // CRITICAL STEP 2: Enforce 600ms grace window after playback ends
+        ignoreSpeechTimestamp = Date.now() + 600;
+
+        setTimeout(() => {
+          isTtsSpeaking = false;
+          if (isContinuousVoiceEnabled && speechRecognizer) {
+            try { speechRecognizer.start(); } catch (e) {}
+          }
+          if (onComplete) onComplete();
+        }, 600);
+      };
+
+      utterance.onend = finishPlayback;
+      utterance.onerror = (e) => {
+        finishPlayback();
+      };
+
+      window.speechSynthesis.speak(utterance);
+    }
+
+    function renderVoiceConfirmCard(op) {
+      document.getElementById('voiceConfirmCust').textContent = op.customer_name;
+      document.getElementById('voiceConfirmAmt').textContent = `₹${Number(op.amount).toFixed(2)}`;
+      const isU = op.transaction_type === 'UDHAAR';
+      const typeEl = document.getElementById('voiceConfirmType');
+      typeEl.textContent = isU ? 'उधार (Credit Given)' : 'जमा (Payment Received)';
+      typeEl.style.color = isU ? 'var(--udhaar-red)' : 'var(--jama-green)';
+      document.getElementById('voiceConfirmCard').style.display = 'block';
+    }
+
+    async function submitVoiceConfirmationChoice(action) {
+      if (!activePendingOperation) return;
+      await dispatchVoiceCommand(
+        action === 'confirm' ? "haan" : "nahi",
+        activePendingOperation.operation_id,
+        action
+      );
+    }
+
+    function toggleContinuousVoice() {
+      if (isContinuousVoiceEnabled) stopContinuousVoice();
+      else startContinuousVoice();
+    }
+
+    function startContinuousVoice() {
+      if (!speechRecognizer) setupSpeechRecognition();
+      isContinuousVoiceEnabled = true;
+      updateFsmBadge(FSM_STATES.LISTENING_IDLE);
+
+      document.getElementById('voiceToggleModeBtn').classList.add('active');
+      document.getElementById('voiceToggleModeIcon').textContent = '⏹️';
+      document.getElementById('voiceToggleModeText').textContent = 'Stop Voice Mode';
+
+      try { speechRecognizer.start(); } catch (e) {}
+      showToast("Voice Mode Started! Say 'Suno Hisab' anytime.", "success");
+    }
+
+    function stopContinuousVoice() {
+      isContinuousVoiceEnabled = false;
+      isConversationSessionActive = false;
+      document.getElementById('voiceSessionPill').style.display = 'none';
+
+      document.getElementById('voiceToggleModeBtn').classList.remove('active');
+      document.getElementById('voiceToggleModeIcon').textContent = '▶️';
+      document.getElementById('voiceToggleModeText').textContent = 'Start Voice Mode';
+
+      if (speechRecognizer) {
+        try { speechRecognizer.stop(); } catch (e) {}
+      }
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      isTtsSpeaking = false;
+      updateFsmBadge(FSM_STATES.SLEEPING);
+    }
+
+    function toggleVoiceAudioMute() {
+      isTtsMuted = !isTtsMuted;
+      if (isTtsMuted) {
+        document.getElementById('voiceTtsIcon').textContent = '🔇';
+        document.getElementById('voiceTtsText').textContent = 'Voice Audio: MUTED';
+        if (window.speechSynthesis) window.speechSynthesis.cancel();
+      } else {
+        document.getElementById('voiceTtsIcon').textContent = '🔊';
+        document.getElementById('voiceTtsText').textContent = 'Voice Audio: ON';
+      }
+    }
+
+    function sendManualVoiceCommand() {
+      const inp = document.getElementById('voiceManualInput');
+      const text = inp.value.trim();
+      if (!text) return;
+      inp.value = '';
+      dispatchVoiceCommand(text, activePendingOperation?.operation_id);
+    }
+
+    function triggerVoicePreset(phrase) {
+      dispatchVoiceCommand(phrase, activePendingOperation?.operation_id);
+    }
+
+    // --- 9. HEALTH & UTILS ---
+    async function checkSystemHealth() {
+      try {
+        const resp = await fetch('/api/health');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (data.ai_configured) {
+          document.getElementById('aiModelText').textContent = data.ai_model || 'Gemma Active';
+          document.getElementById('settingsAiEngine').textContent = `${data.ai_model} (Online)`;
+        } else {
+          document.getElementById('aiModelText').textContent = 'Manual Mode';
+          document.getElementById('settingsAiEngine').textContent = 'Manual Heuristics';
+        }
+      } catch (e) {}
+    }
+
+    function showToast(message, type = "success") {
+      const toast = document.getElementById('appToast');
+      toast.className = `app-toast ${type}`;
+      toast.textContent = message;
+      toast.style.display = 'block';
+      setTimeout(() => { toast.style.display = 'none'; }, 4500);
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      const div = document.createElement('div');
+      div.innerText = str;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>
