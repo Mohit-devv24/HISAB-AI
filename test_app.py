@@ -381,7 +381,7 @@ class TestHisabAIFullSuite(unittest.TestCase):
     # 8. Unit Tests for AI Service Logic & Security
     def test_redact_secrets(self):
         """Verifies sensitive API keys are stripped from error logs."""
-        raw_msg = "Error using key=AIzaSyD-1234567890abcdef1234567890abcde"
+        raw_msg = "Error using key=AIzaSyDUMMY_zaSyD-1234567890abcdef1234567890abcde"
         clean_msg = redact_secrets(raw_msg)
         self.assertNotIn("AIzaSyD", clean_msg)
         self.assertIn("[REDACTED", clean_msg)
