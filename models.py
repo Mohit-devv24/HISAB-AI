@@ -58,11 +58,20 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     username = Column(String(60), unique=True, nullable=False, index=True)
-    shop_name = Column(String(120), nullable=False, default="Apna Kirana Store")
+    shop_name = Column(String(120), nullable=False, default="My Store")
     owner_name = Column(String(120), nullable=True)
     email = Column(String(120), unique=True, nullable=True, index=True)
     google_id = Column(String(120), unique=True, nullable=True, index=True)
     password_hash = Column(String(255), nullable=True)
+    role = Column(String(20), nullable=False, default="OWNER")  # OWNER, MANAGER, STAFF
+    shop_id = Column(Integer, nullable=True, index=True)
+    phone = Column(String(20), nullable=True)
+    address = Column(String(255), nullable=True)
+    currency = Column(String(10), nullable=False, default="INR")
+    timezone = Column(String(40), nullable=False, default="Asia/Kolkata")
+    interest_enabled = Column(Integer, nullable=False, default=1)
+    interest_rate_percent = Column(Float, nullable=False, default=2.0)
+    interest_grace_days = Column(Integer, nullable=False, default=15)
     created_at = Column(
         DateTime(timezone=True),
         default=get_current_ist_time,
@@ -97,6 +106,8 @@ class Transaction(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     customer_name = Column(String(120), nullable=False, index=True)
+    customer_phone = Column(String(20), nullable=True)
+    notes = Column(String(255), nullable=True)
     # Primary authoritative monetary storage is integer paise (1 Rupee = 100 Paise)
     amount_paise = Column(Integer, nullable=False)
     # Kept in sync for backwards compatibility and direct display
@@ -123,6 +134,109 @@ class Transaction(Base):
             f"<Transaction id={self.id} customer='{self.customer_name}' "
             f"amount=₹{self.amount:.2f} type='{self.transaction_type}'>"
         )
+
+
+class PaymentReminder(Base):
+    """
+    SQLAlchemy model recording sent / prepared payment reminders.
+    Supports duplicate check, idempotency, and reminder logs.
+    """
+    __tablename__ = "payment_reminders"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    shop_id = Column(Integer, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    customer_name = Column(String(120), nullable=False, index=True)
+    customer_phone = Column(String(20), nullable=True)
+    balance_snapshot_paise = Column(Integer, nullable=False)
+    message_text = Column(String(1000), nullable=False)
+    delivery_method = Column(String(30), default="WHATSAPP")  # WHATSAPP, SMS, COPY, EMAIL
+    delivery_status = Column(String(30), default="PREPARED")  # PREPARED, SENT, FAILED
+    customer_email = Column(String(120), nullable=True)
+    due_date = Column(DateTime(timezone=True), nullable=True)
+    overdue_days = Column(Integer, default=0)
+    delivery_details = Column(String(500), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=get_current_ist_time,
+        nullable=False,
+        index=True
+    )
+
+
+class Product(Base):
+    """
+    SQLAlchemy model representing an inventory item/catalog entry.
+    Separate from the financial ledger.
+    """
+    __tablename__ = "products"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    shop_id = Column(Integer, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    name = Column(String(150), nullable=False, index=True)
+    sku = Column(String(60), nullable=True, index=True)
+    category = Column(String(80), nullable=True, default="General")
+    unit = Column(String(30), default="pcs")  # pcs, kg, litre, packet, meter
+    cost_price_paise = Column(Integer, default=0)
+    selling_price_paise = Column(Integer, default=0)
+    current_stock = Column(Float, default=0.0)
+    low_stock_threshold = Column(Float, default=5.0)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=get_current_ist_time,
+        nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=get_current_ist_time,
+        onupdate=get_current_ist_time,
+        nullable=False
+    )
+
+
+class StockMovement(Base):
+    """
+    SQLAlchemy model recording every atomic stock change (received, sold, adjustment, return).
+    """
+    __tablename__ = "stock_movements"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    shop_id = Column(Integer, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    movement_type = Column(String(30), nullable=False)  # RECEIVED, SOLD, ADJUSTMENT, RETURN
+    quantity = Column(Float, nullable=False)  # positive or negative delta
+    notes = Column(String(255), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=get_current_ist_time,
+        nullable=False,
+        index=True
+    )
+
+
+class AuditLog(Base):
+    """
+    SQLAlchemy model providing an append-only audit trail of sensitive actions.
+    """
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    shop_id = Column(Integer, nullable=False, index=True)
+    user_id = Column(Integer, nullable=True, index=True)
+    username = Column(String(60), nullable=True)
+    action = Column(String(60), nullable=False, index=True)
+    resource_type = Column(String(60), nullable=True)
+    resource_id = Column(String(60), nullable=True)
+    details_json = Column(String(2000), nullable=True)
+    ip_address = Column(String(45), nullable=True)
+    timestamp = Column(
+        DateTime(timezone=True),
+        default=get_current_ist_time,
+        nullable=False,
+        index=True
+    )
 
 
 # ==========================================
@@ -261,6 +375,9 @@ class VoiceIntentType(str, enum.Enum):
     CORRECT_PENDING_ENTRY = "CORRECT_PENDING_ENTRY"
     REPEAT_LAST_RESPONSE = "REPEAT_LAST_RESPONSE"
     STOP_ASSISTANT = "STOP_ASSISTANT"
+    NAVIGATE_VIEW = "NAVIGATE_VIEW"
+    PREPARE_REMINDER = "PREPARE_REMINDER"
+    PREPARE_RECEIPT = "PREPARE_RECEIPT"
     UNKNOWN = "UNKNOWN"
 
 
@@ -271,9 +388,11 @@ class VoiceIntentResult(BaseModel):
     amount: Optional[float] = None
     transaction_type: Optional[Literal["UDHAAR", "JAMA"]] = None
     date_filter: Optional[str] = None  # e.g., "today", "yesterday", "last_7_days", "this_month"
+    target_view: Optional[str] = None  # e.g., "dashboard", "ledger", "customers", "inventory", "reports", "reminders", "team", "settings"
     corrected_amount: Optional[float] = None
     corrected_customer_name: Optional[str] = None
     clarification_message: Optional[str] = None
+    language: Optional[str] = "hinglish"  # "hindi", "hinglish", "english"
 
     @field_validator("amount", "corrected_amount")
     @classmethod
@@ -338,7 +457,7 @@ class VoiceAssistantResponse(BaseModel):
 
 class UserSignupRequest(BaseModel):
     """Payload to register a new shopkeeper account."""
-    shop_name: Optional[str] = Field("Apna Kirana Store", max_length=120, description="Shop name")
+    shop_name: Optional[str] = Field("My Store", max_length=120, description="Shop name")
     owner_name: Optional[str] = Field(None, max_length=120, description="Shopkeeper name")
     email: Optional[str] = Field(None, max_length=120, description="Email address")
     username: Optional[str] = Field(None, min_length=3, max_length=60, description="Unique username")
@@ -385,6 +504,8 @@ class UserResponse(BaseModel):
     shop_name: str
     owner_name: Optional[str] = None
     email: Optional[str] = None
+    role: Optional[str] = "OWNER"
+    shop_id: Optional[int] = None
     created_at: str
 
 
@@ -442,3 +563,322 @@ class LedgerHistoryResponse(BaseModel):
     transactions: List[LedgerEntryResponse]
 
 
+# ==========================================
+# Phase 1: Smart Reminders & Transaction Search Schemas
+# ==========================================
+
+class ReminderCustomerItem(BaseModel):
+    """Customer eligible for payment reminder."""
+    customer_name: str
+    customer_phone: Optional[str] = None
+    outstanding_balance: float
+    last_transaction_date: Optional[str] = None
+    last_reminder_sent_at: Optional[str] = None
+    already_reminded_today: bool = False
+
+
+class EligibleRemindersResponse(BaseModel):
+    """List of all customers eligible for payment reminder."""
+    total_eligible: int
+    total_outstanding_amount: float
+    customers: List[ReminderCustomerItem]
+
+
+class GenerateReminderRequest(BaseModel):
+    """Request to generate a polite payment reminder text."""
+    customer_name: str
+    customer_phone: Optional[str] = None
+    tone: Optional[Literal["polite", "urgent", "formal"]] = "polite"
+
+
+class GeneratedReminderResponse(BaseModel):
+    """Generated reminder text with ready-to-use WhatsApp and SMS URLs."""
+    customer_name: str
+    customer_phone: Optional[str] = None
+    outstanding_balance: float
+    message_text: str
+    whatsapp_url: str
+    sms_url: str
+
+
+class RecordReminderRequest(BaseModel):
+    """Request to record a sent or prepared reminder."""
+    customer_name: str
+    customer_phone: Optional[str] = None
+    balance_amount: float
+    message_text: str
+    delivery_method: Literal["WHATSAPP", "SMS", "COPY"] = "WHATSAPP"
+    delivery_status: Literal["PREPARED", "SENT", "FAILED"] = "SENT"
+
+
+class ReminderHistoryItem(BaseModel):
+    """Record of a past payment reminder."""
+    id: int
+    customer_name: str
+    customer_phone: Optional[str] = None
+    balance_snapshot: float
+    message_text: str
+    delivery_method: str
+    delivery_status: str
+    created_at: str
+
+
+class TransactionSearchItem(BaseModel):
+    """Individual transaction in search/filtered list."""
+    id: int
+    customer_name: str
+    customer_phone: Optional[str] = None
+    notes: Optional[str] = None
+    amount: float
+    amount_paise: int
+    transaction_type: str
+    timestamp: str
+
+
+class TransactionSearchResponse(BaseModel):
+    """Paginated transaction search results."""
+    total_count: int
+    page: int
+    page_size: int
+    total_pages: int
+    total_amount_udhaar: float
+    total_amount_jama: float
+    transactions: List[TransactionSearchItem]
+
+
+# ==========================================
+# Phase 3: Inventory & Multi-User Access Schemas
+# ==========================================
+
+class ProductCreateRequest(BaseModel):
+    """Payload to register a new product in the inventory catalog."""
+    name: str = Field(..., min_length=1, max_length=150)
+    sku: Optional[str] = Field(None, max_length=60)
+    category: Optional[str] = Field("General", max_length=80)
+    unit: Optional[str] = Field("pcs", max_length=30)
+    cost_price: float = Field(0.0, ge=0)
+    selling_price: float = Field(0.0, ge=0)
+    initial_stock: float = Field(0.0, ge=0)
+    low_stock_threshold: float = Field(5.0, ge=0)
+
+
+class ProductUpdateRequest(BaseModel):
+    """Payload to update an inventory product."""
+    name: Optional[str] = Field(None, min_length=1, max_length=150)
+    sku: Optional[str] = Field(None, max_length=60)
+    category: Optional[str] = Field(None, max_length=80)
+    unit: Optional[str] = Field(None, max_length=30)
+    cost_price: Optional[float] = Field(None, ge=0)
+    selling_price: Optional[float] = Field(None, ge=0)
+    low_stock_threshold: Optional[float] = Field(None, ge=0)
+
+
+class ProductResponse(BaseModel):
+    """Serialized inventory product item."""
+    id: int
+    name: str
+    sku: Optional[str] = None
+    category: str
+    unit: str
+    cost_price: float
+    selling_price: float
+    current_stock: float
+    low_stock_threshold: float
+    is_low_stock: bool
+    created_at: str
+    updated_at: str
+
+
+class StockMovementCreateRequest(BaseModel):
+    """Payload to record stock movement (received, sold, adjustment, return)."""
+    product_id: int
+    movement_type: Literal["RECEIVED", "SOLD", "ADJUSTMENT", "RETURN"]
+    quantity: float = Field(..., gt=0, description="Absolute quantity to add or remove")
+    notes: Optional[str] = Field(None, max_length=255)
+
+
+class StockMovementResponse(BaseModel):
+    """Serialized stock movement log entry."""
+    id: int
+    product_id: int
+    product_name: str
+    movement_type: str
+    quantity: float
+    notes: Optional[str] = None
+    resulting_stock: float
+    created_at: str
+
+
+class TeamMemberCreateRequest(BaseModel):
+    """Payload for OWNER to invite/create a team member."""
+    username: str = Field(..., min_length=3, max_length=60)
+    password: str = Field(..., min_length=6, max_length=100)
+    owner_name: Optional[str] = Field(None, max_length=120)
+    email: Optional[str] = Field(None, max_length=120)
+    role: Literal["MANAGER", "STAFF"] = "STAFF"
+
+
+class TeamRoleUpdateRequest(BaseModel):
+    """Payload to modify team member role."""
+    role: Literal["MANAGER", "STAFF"]
+
+
+class TeamMemberResponse(BaseModel):
+    """Team member details."""
+    id: int
+    username: str
+    owner_name: Optional[str] = None
+    email: Optional[str] = None
+    role: str
+    created_at: str
+
+
+# ==========================================
+# Phase 4: Audit Logs & Analytics Schemas
+# ==========================================
+
+class AuditLogResponse(BaseModel):
+    """Serialized audit log entry."""
+    id: int
+    shop_id: int
+    user_id: Optional[int] = None
+    username: Optional[str] = None
+    action: str
+    resource_type: Optional[str] = None
+    resource_id: Optional[str] = None
+    details_json: Optional[str] = None
+    ip_address: Optional[str] = None
+    timestamp: str
+
+
+class DailyAnalyticsSummary(BaseModel):
+    """Aggregated metrics for a given date with optional AI explanation."""
+    date: str
+    total_udhaar: float
+    total_jama: float
+    net_movement: float
+    transaction_count: int
+    active_customers_count: int
+    top_customer_today: Optional[str] = None
+    ai_summary_text: Optional[str] = None
+
+
+class CustomerDistributionBucket(BaseModel):
+    """Distribution bucket for customer debt breakdown."""
+    bucket_label: str
+    customer_count: int
+    total_debt: float
+
+
+class AnalyticsOverviewResponse(BaseModel):
+    """Comprehensive analytics metrics including trends & balance distribution."""
+    period_start: str
+    period_end: str
+    total_udhaar: float
+    total_jama: float
+    net_flow: float
+    total_active_customers: int
+    customer_distribution: List[CustomerDistributionBucket]
+    top_debtors: List[dict]
+    daily_trend: List[dict]
+
+
+# ==========================================
+# Audit & Extended Settings / Email Schemas
+# ==========================================
+
+class ShopProfileUpdateRequest(BaseModel):
+    """Payload to update shop and owner profile configuration."""
+    shop_name: Optional[str] = Field(None, min_length=1, max_length=120)
+    owner_name: Optional[str] = Field(None, min_length=1, max_length=120)
+    email: Optional[str] = Field(None, max_length=120)
+    phone: Optional[str] = Field(None, max_length=20)
+    address: Optional[str] = Field(None, max_length=255)
+    currency: Optional[str] = Field("INR", max_length=10)
+    timezone: Optional[str] = Field("Asia/Kolkata", max_length=40)
+    interest_enabled: Optional[bool] = True
+    interest_rate_percent: Optional[float] = 2.0
+    interest_grace_days: Optional[int] = 15
+
+
+class ShopProfileResponse(BaseModel):
+    """Shop and owner profile information."""
+    id: int
+    username: str
+    shop_name: str
+    owner_name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    currency: str
+    timezone: str
+    role: str
+    interest_enabled: bool
+    interest_rate_percent: float
+    interest_grace_days: int
+
+
+class EmailReminderPreviewRequest(BaseModel):
+    """Request to preview an email reminder for a customer."""
+    customer_name: str = Field(..., min_length=1, max_length=120)
+    customer_email: Optional[str] = Field(None, max_length=120)
+
+
+class EmailReminderPreviewResponse(BaseModel):
+    """Preview of generated email reminder including subject, HTML body, and ledger stats."""
+    customer_name: str
+    customer_email: Optional[str] = None
+    subject: str
+    html_content: str
+    text_content: str
+    balance: float
+    principal_balance: float
+    accrued_interest: float
+    overdue_days: int
+    shop_name: str
+    owner_name: Optional[str] = None
+
+
+class EmailReminderSendRequest(BaseModel):
+    """Request to dispatch a customer email payment reminder."""
+    customer_name: str = Field(..., min_length=1, max_length=120)
+    customer_email: str = Field(..., min_length=5, max_length=120)
+    subject: Optional[str] = None
+    custom_message: Optional[str] = None
+
+
+class EmailReminderSendResponse(BaseModel):
+    """Result of sending an email reminder."""
+    status: str  # "ACCEPTED", "FAILED"
+    message: str
+    recipient: str
+    reminder_id: Optional[int] = None
+    timestamp: str
+
+
+class CustomerInterestBreakdown(BaseModel):
+    """Overdue interest breakdown for a specific customer."""
+    customer_name: str
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    principal_balance: float
+    total_balance: float
+    accrued_interest: float
+    overdue_days: int
+    grace_days: int
+    overdue_periods: int
+    rate_percent: float
+    is_overdue: bool
+    oldest_unsettled_date: Optional[str] = None
+
+
+class InterestOverviewResponse(BaseModel):
+    """Shop-wide overdue interest summary and customer breakdowns."""
+    interest_enabled: bool
+    default_rate_percent: float
+    grace_period_days: int
+    total_principal_outstanding: float
+    total_interest_accrued: float
+    total_combined_due: float
+    overdue_customers_count: int
+    breakdowns: List[CustomerInterestBreakdown]

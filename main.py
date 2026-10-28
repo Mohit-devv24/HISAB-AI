@@ -6,19 +6,27 @@ customer ledger queries, and system health checks.
 """
 
 from datetime import datetime, time, timedelta
+import csv
+import hashlib
+import io
+import json
 import logging
 import os
 from pathlib import Path
 import secrets
+import shutil
 from typing import Dict, List, Optional, Tuple
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 import uuid
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
-from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Request, status
+from email_service import generate_reminder_email_content, is_valid_email, send_brevo_email
+from interest_service import calculate_customer_interest
+
+from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
@@ -33,24 +41,57 @@ else:
 
 import database
 from database import engine, get_db
+import pdf_generator
 import models
 from models import (
+    AnalyticsOverviewResponse,
+    AuditLog,
+    AuditLogResponse,
     AuthResponse,
     CustomerDirectoryItem,
     CustomerDirectoryResponse,
+    CustomerDistributionBucket,
+    CustomerInterestBreakdown,
     CustomerSummaryResponse,
+    DailyAnalyticsSummary,
     DailySummaryResponse,
+    EligibleRemindersResponse,
+    EmailReminderPreviewRequest,
+    EmailReminderPreviewResponse,
+    EmailReminderSendRequest,
+    EmailReminderSendResponse,
     ExtractedTransaction,
+    GenerateReminderRequest,
+    GeneratedReminderResponse,
     GoogleAuthRequest,
     HealthResponse,
+    InterestOverviewResponse,
     KOLKATA_TZ,
     LedgerEntryResponse,
     LedgerHistoryResponse,
     ParseInputRequest,
+    PaymentReminder,
     PendingOperationData,
+    Product,
+    ProductCreateRequest,
+    ProductResponse,
+    ProductUpdateRequest,
+    RecordReminderRequest,
+    ReminderCustomerItem,
+    ReminderHistoryItem,
+    ShopProfileResponse,
+    ShopProfileUpdateRequest,
+    StockMovement,
+    StockMovementCreateRequest,
+    StockMovementResponse,
+    TeamMemberCreateRequest,
+    TeamMemberResponse,
+    TeamRoleUpdateRequest,
     Transaction,
     TransactionCreateRequest,
     TransactionResponse,
+    TransactionSearchItem,
+    TransactionSearchResponse,
     TransactionType,
     User,
     UserLoginRequest,
@@ -126,7 +167,8 @@ def create_pending_operation(
     amount: float,
     transaction_type: str,
     session_id: Optional[str] = None,
-    user_id: Optional[int] = None
+    user_id: Optional[int] = None,
+    language: Optional[str] = "hinglish"
 ) -> PendingOperationData:
     """Creates an uncommitted pending operation awaiting explicit user confirmation."""
     cleanup_expired_operations()
@@ -137,6 +179,7 @@ def create_pending_operation(
     op_record = {
         "operation_id": op_id,
         "user_id": user_id,
+        "language": language or "hinglish",
         "customer_name": customer_name,
         "amount": round(float(amount), 2),
         "amount_paise": int(round(float(amount) * 100)),
@@ -256,6 +299,66 @@ def require_current_user(
     return user
 
 
+def get_effective_shop_id(user: User) -> int:
+    """Returns the primary shop owner ID for multi-user accounts."""
+    if not user:
+        return 0
+    return user.shop_id if user.shop_id else user.id
+
+
+def check_role(allowed_roles: List[str]):
+    """FastAPI dependency for Role-Based Access Control (RBAC)."""
+    def role_dependency(user: User = Depends(require_current_user)) -> User:
+        user_role = getattr(user, "role", "OWNER") or "OWNER"
+        if user_role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied. Requires one of roles: {', '.join(allowed_roles)}. Your role is '{user_role}'."
+            )
+        return user
+    return role_dependency
+
+
+def sanitize_csv_cell(val: any) -> str:
+    """OWASP formula injection sanitizer: neutralizes leading =, +, -, @, \\t, \\r."""
+    if val is None:
+        return ""
+    text_val = str(val).strip()
+    if text_val and text_val[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + text_val
+    return text_val
+
+
+def log_audit_event(
+    db: Session,
+    shop_id: int,
+    user: Optional[User],
+    action: str,
+    resource_type: Optional[str] = None,
+    resource_id: Optional[str] = None,
+    details: Optional[dict] = None,
+    ip_address: Optional[str] = None
+):
+    """Writes an append-only audit log entry for sensitive operations."""
+    try:
+        details_str = json.dumps(details) if details else None
+        audit = AuditLog(
+            shop_id=shop_id,
+            user_id=user.id if user else None,
+            username=user.username if user else "system",
+            action=action,
+            resource_type=resource_type,
+            resource_id=str(resource_id) if resource_id is not None else None,
+            details_json=details_str,
+            ip_address=ip_address
+        )
+        db.add(audit)
+        db.commit()
+    except Exception as exc:
+        logger.warning(f"Failed to record audit log: {exc}")
+        db.rollback()
+
+
 def verify_google_id_token(token_str: str) -> dict:
     """
     Verifies a Google OAuth ID token using Google's public certificates.
@@ -348,7 +451,7 @@ def google_auth_login(
             username=clean_username,
             email=google_email,
             owner_name=google_name,
-            shop_name=f"{google_name}'s Dukaan",
+            shop_name=f"{google_name}'s Store",
             google_id=google_sub,
             password_hash=None, # Google OAuth users do not require separate password
             created_at=now_dt
@@ -375,6 +478,8 @@ def google_auth_login(
             shop_name=user.shop_name,
             owner_name=user.owner_name,
             email=user.email,
+            role=getattr(user, "role", "OWNER") or "OWNER",
+            shop_id=user.shop_id or user.id,
             created_at=user.created_at.strftime("%Y-%m-%d %H:%M")
         )
     )
@@ -410,15 +515,20 @@ def signup_user(
     now_dt = get_current_ist_time()
     new_user = User(
         username=clean_username,
-        shop_name=payload.shop_name or "Apna Kirana Store",
+        shop_name=payload.shop_name or "My Store",
         owner_name=payload.owner_name,
         email=clean_email,
         password_hash=pw_hash,
+        role="OWNER",
         created_at=now_dt
     )
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+    # Set shop_id to self.id for primary owner
+    if not new_user.shop_id:
+        new_user.shop_id = new_user.id
+        db.commit()
 
     token = secrets.token_urlsafe(32)
     expires_at = now_dt + timedelta(days=30)
@@ -437,6 +547,8 @@ def signup_user(
             shop_name=new_user.shop_name,
             owner_name=new_user.owner_name,
             email=new_user.email,
+            role=getattr(new_user, "role", "OWNER") or "OWNER",
+            shop_id=new_user.shop_id or new_user.id,
             created_at=new_user.created_at.strftime("%Y-%m-%d %H:%M")
         )
     )
@@ -474,6 +586,8 @@ def login_user(
             shop_name=user.shop_name,
             owner_name=user.owner_name,
             email=user.email,
+            role=getattr(user, "role", "OWNER") or "OWNER",
+            shop_id=user.shop_id or user.id,
             created_at=user.created_at.strftime("%Y-%m-%d %H:%M")
         )
     )
@@ -500,6 +614,8 @@ def get_current_user_profile(user: User = Depends(require_current_user)):
         shop_name=user.shop_name,
         owner_name=user.owner_name,
         email=user.email,
+        role=getattr(user, "role", "OWNER") or "OWNER",
+        shop_id=user.shop_id or user.id,
         created_at=user.created_at.strftime("%Y-%m-%d %H:%M")
     )
 
@@ -517,8 +633,9 @@ def list_customers(
 ):
     query_term = (search or q or "").strip().lower()
     tx_query = db.query(Transaction)
-    if current_user:
-        tx_query = tx_query.filter(Transaction.user_id == current_user.id)
+    shop_id = get_effective_shop_id(current_user) if current_user else None
+    if shop_id:
+        tx_query = tx_query.filter(Transaction.user_id == shop_id)
     all_txs = tx_query.order_by(Transaction.timestamp.asc()).all()
     cust_data: Dict[str, dict] = {}
 
@@ -550,11 +667,11 @@ def list_customers(
         bal = round((d["udhaar_paise"] - d["jama_paise"]) / 100.0, 2)
         if bal > 0:
             total_debt += bal
-            status_label = f"Baqaya ₹{bal:,.2f}"
+            status_label = f"Due ₹{bal:,.2f}"
         elif bal < 0:
             status_label = f"Advance ₹{abs(bal):,.2f}"
         else:
-            status_label = "Hisab Clear"
+            status_label = "Settled"
 
         items.append(CustomerDirectoryItem(
             customer_name=name,
@@ -804,10 +921,31 @@ def create_transaction(
 
     # Store monetary value strictly as integer paise
     amount_paise = int(round(amount_float * 100))
+    shop_id = get_effective_shop_id(current_user) if current_user else None
+
+    # Idempotency / Double-click guard: check for identical transaction in the last 4 seconds
+    cutoff_time = get_current_ist_time() - timedelta(seconds=4)
+    recent_dup = (
+        db.query(Transaction)
+        .filter(
+            Transaction.user_id == shop_id,
+            func.lower(Transaction.customer_name) == clean_name.lower(),
+            Transaction.amount_paise == amount_paise,
+            Transaction.transaction_type == tx_type,
+            Transaction.timestamp >= cutoff_time
+        )
+        .first()
+    )
+    if recent_dup:
+        logger.warning(
+            f"Suppressed duplicate transaction creation for '{clean_name}' (₹{amount_float:.2f}). "
+            f"Returning existing Transaction #{recent_dup.id}."
+        )
+        return recent_dup
 
     try:
         db_transaction = Transaction(
-            user_id=current_user.id if current_user else None,
+            user_id=shop_id,
             customer_name=clean_name,
             amount_paise=amount_paise,
             amount=round(amount_float, 2),
@@ -865,15 +1003,15 @@ def get_daily_summary(
     Calculations use integer paise arithmetic converted to rupees to prevent float drift.
     """
     now_ist = get_current_ist_time()
-    start_of_today = datetime.combine(now_ist.date(), time.min, tzinfo=KOLKATA_TZ)
-    end_of_today = datetime.combine(now_ist.date(), time.max, tzinfo=KOLKATA_TZ)
+    today_str = now_ist.strftime("%Y-%m-%d")
+    shop_id = get_effective_shop_id(current_user) if current_user else None
 
+    # Query matching today's date in IST - robust across naive string SQLite and ISO timestamps
     query = db.query(Transaction).filter(
-        Transaction.timestamp >= start_of_today,
-        Transaction.timestamp <= end_of_today
+        func.date(Transaction.timestamp) == today_str
     )
-    if current_user:
-        query = query.filter(Transaction.user_id == current_user.id)
+    if shop_id:
+        query = query.filter(Transaction.user_id == shop_id)
 
     today_transactions = (
         query
@@ -890,7 +1028,7 @@ def get_daily_summary(
     net_paise = total_udhaar_paise - total_jama_paise
 
     return DailySummaryResponse(
-        date=now_ist.strftime("%Y-%m-%d"),
+        date=today_str,
         total_udhaar_today=round(total_udhaar_paise / 100.0, 2),
         total_jama_today=round(total_jama_paise / 100.0, 2),
         net_today=round(net_paise / 100.0, 2),
@@ -929,8 +1067,9 @@ def get_customer_ledger(
         )
 
     query = db.query(Transaction).filter(func.lower(Transaction.customer_name) == clean_name.lower())
-    if current_user:
-        query = query.filter(Transaction.user_id == current_user.id)
+    shop_id = get_effective_shop_id(current_user) if current_user else None
+    if shop_id:
+        query = query.filter(Transaction.user_id == shop_id)
 
     records = (
         query
@@ -982,15 +1121,19 @@ def get_customer_ledger(
 def execute_customer_balance_voice_query(
     customer_query: str,
     db: Session,
-    user_id: Optional[int] = None
+    user_id: Optional[int] = None,
+    language: Optional[str] = "hinglish"
 ) -> Tuple[str, dict]:
     """
     Queries real database records for customer balance.
     Handles prefix matching, full names, and ambiguity.
+    Supports Hindi, Hinglish, and English output.
     """
     clean_query = " ".join(customer_query.strip().split())
+    is_en = (language == "english")
     if not clean_query:
-        return ("Customer ka naam spasht nahi hai. Kripya naam dobara bolein.", {})
+        msg = "Customer name is not clear. Please say the customer name again." if is_en else "Customer ka naam spasht nahi hai. Kripya naam dobara bolein."
+        return (msg, {})
 
     # Exact case-insensitive match first
     query = db.query(Transaction).filter(func.lower(Transaction.customer_name) == clean_query.lower())
@@ -1005,12 +1148,20 @@ def execute_customer_balance_voice_query(
         bal_paise = udhaar_paise - jama_paise
         bal = round(bal_paise / 100.0, 2)
 
-        if bal > 0:
-            speech = f"{canonical_name} ka ₹{bal:,.2f} udhaar baaki hai."
-        elif bal < 0:
-            speech = f"{canonical_name} ka hisab clear hai, aur ₹{abs(bal):,.2f} advance jama hai."
+        if is_en:
+            if bal > 0:
+                speech = f"{canonical_name} owes ₹{bal:,.2f}."
+            elif bal < 0:
+                speech = f"{canonical_name}'s account is clear, with ₹{abs(bal):,.2f} advance balance."
+            else:
+                speech = f"{canonical_name}'s account is fully settled. No pending dues."
         else:
-            speech = f"{canonical_name} ka hisab bilkul clear hai. Koi baaki nahi hai."
+            if bal > 0:
+                speech = f"{canonical_name} ka ₹{bal:,.2f} udhaar baaki hai."
+            elif bal < 0:
+                speech = f"{canonical_name} ka hisab clear hai, aur ₹{abs(bal):,.2f} advance jama hai."
+            else:
+                speech = f"{canonical_name} ka hisab bilkul clear hai. Koi baaki nahi hai."
 
         return (speech, {
             "customer_name": canonical_name,
@@ -1031,15 +1182,19 @@ def execute_customer_balance_voice_query(
     ]
 
     if len(matched_names) > 1:
-        names_str = " aur ".join(matched_names[:3])
-        speech = f"Mujhe {len(matched_names)} customer mile hain: {names_str}. Aap kiska hisab dekhna chahte hain?"
+        if is_en:
+            names_str = " and ".join(matched_names[:3])
+            speech = f"Found {len(matched_names)} matching customers: {names_str}. Whose balance would you like to check?"
+        else:
+            names_str = " aur ".join(matched_names[:3])
+            speech = f"Mujhe {len(matched_names)} customer mile hain: {names_str}. Aap kiska hisab dekhna chahte hain?"
         return (speech, {"ambiguous_customers": matched_names})
 
     if len(matched_names) == 1:
         # Exactly one customer matches partial name
-        return execute_customer_balance_voice_query(matched_names[0], db, user_id=user_id)
+        return execute_customer_balance_voice_query(matched_names[0], db, user_id=user_id, language=language)
 
-    speech = f"Khate mein '{clean_query}' naam ka koi customer nahi mila."
+    speech = f"Customer '{clean_query}' not found in khata ledger." if is_en else f"Khate mein '{clean_query}' naam ka koi customer nahi mila."
     return (speech, {"not_found": clean_query})
 
 
@@ -1047,31 +1202,33 @@ def execute_summary_voice_query(
     date_filter: Optional[str],
     tx_type_filter: Optional[str],
     db: Session,
-    user_id: Optional[int] = None
+    user_id: Optional[int] = None,
+    language: Optional[str] = "hinglish"
 ) -> Tuple[str, dict]:
-    """Queries actual database records for daily or historical reports in IST."""
+    """Queries actual database records for daily or historical reports in IST with language matching."""
     now_ist = get_current_ist_time()
+    is_en = (language == "english")
 
     if date_filter == "yesterday":
         yesterday_date = now_ist.date() - timedelta(days=1)
         start_dt = datetime.combine(yesterday_date, time.min, tzinfo=KOLKATA_TZ)
         end_dt = datetime.combine(yesterday_date, time.max, tzinfo=KOLKATA_TZ)
-        label = "Kal"
+        label = "Yesterday" if is_en else "Kal"
     elif date_filter == "last_7_days":
         start_date = now_ist.date() - timedelta(days=7)
         start_dt = datetime.combine(start_date, time.min, tzinfo=KOLKATA_TZ)
         end_dt = datetime.combine(now_ist.date(), time.max, tzinfo=KOLKATA_TZ)
-        label = "Pichhle 7 din"
+        label = "Past 7 days" if is_en else "Pichhle 7 din"
     elif date_filter == "this_month":
         start_date = now_ist.date().replace(day=1)
         start_dt = datetime.combine(start_date, time.min, tzinfo=KOLKATA_TZ)
         end_dt = datetime.combine(now_ist.date(), time.max, tzinfo=KOLKATA_TZ)
-        label = "Is mahine"
+        label = "This month" if is_en else "Is mahine"
     else:
         # Default: today
         start_dt = datetime.combine(now_ist.date(), time.min, tzinfo=KOLKATA_TZ)
         end_dt = datetime.combine(now_ist.date(), time.max, tzinfo=KOLKATA_TZ)
-        label = "Aaj"
+        label = "Today" if is_en else "Aaj"
 
     query = db.query(Transaction).filter(Transaction.timestamp >= start_dt, Transaction.timestamp <= end_dt)
     if user_id is not None:
@@ -1084,15 +1241,26 @@ def execute_summary_voice_query(
     total_jama = round(jama_paise / 100.0, 2)
     net_movement = round((udhaar_paise - jama_paise) / 100.0, 2)
 
-    if tx_type_filter == "JAMA":
-        speech = f"{label} kul ₹{total_jama:,.2f} jama hue hain."
-    elif tx_type_filter == "UDHAAR":
-        speech = f"{label} kul ₹{total_udhaar:,.2f} ka udhaar diya gaya hai."
+    if is_en:
+        if tx_type_filter == "JAMA":
+            speech = f"{label}'s total collection is ₹{total_jama:,.2f}."
+        elif tx_type_filter == "UDHAAR":
+            speech = f"{label}'s total credit extended is ₹{total_udhaar:,.2f}."
+        else:
+            speech = (
+                f"{label}'s total collection is ₹{total_jama:,.2f} and ₹{total_udhaar:,.2f} credit was extended. "
+                f"Total {len(records)} entries."
+            )
     else:
-        speech = (
-            f"{label} kul ₹{total_jama:,.2f} jama hue aur ₹{total_udhaar:,.2f} ka udhaar diya gaya. "
-            f"Kul {len(records)} entries hain."
-        )
+        if tx_type_filter == "JAMA":
+            speech = f"{label} kul ₹{total_jama:,.2f} jama hue hain."
+        elif tx_type_filter == "UDHAAR":
+            speech = f"{label} kul ₹{total_udhaar:,.2f} ka udhaar diya gaya hai."
+        else:
+            speech = (
+                f"{label} kul ₹{total_jama:,.2f} jama hue aur ₹{total_udhaar:,.2f} ka udhaar diya gaya. "
+                f"Kul {len(records)} entries hain."
+            )
 
     return (speech, {
         "period": label,
@@ -1103,14 +1271,20 @@ def execute_summary_voice_query(
     })
 
 
-def execute_customer_list_voice_query(db: Session, user_id: Optional[int] = None) -> Tuple[str, dict]:
-    """Finds all customers with pending debts, sorted from highest to lowest."""
+def execute_customer_list_voice_query(
+    db: Session,
+    user_id: Optional[int] = None,
+    language: Optional[str] = "hinglish"
+) -> Tuple[str, dict]:
+    """Finds all customers with pending debts, sorted from highest to lowest with language matching."""
+    is_en = (language == "english")
     query = db.query(Transaction)
     if user_id is not None:
         query = query.filter(Transaction.user_id == user_id)
     all_txs = query.all()
     if not all_txs:
-        return ("Khate mein abhi koi entry darj nahi hai.", {})
+        msg = "No transactions recorded in the ledger yet." if is_en else "Khate mein abhi koi entry darj nahi hai."
+        return (msg, {})
 
     customer_totals: Dict[str, int] = {}
     for tx in all_txs:
@@ -1126,13 +1300,20 @@ def execute_customer_list_voice_query(db: Session, user_id: Optional[int] = None
     debtors.sort(key=lambda x: x[1], reverse=True)
 
     if not debtors:
-        return ("Kisi bhi customer ka udhaar baaki nahi hai. Sabhi hisab clear hain.", {})
+        msg = "No customer has pending debt. All accounts are settled." if is_en else "Kisi bhi customer ka udhaar baaki nahi hai. Sabhi hisab clear hain."
+        return (msg, {})
 
     top_debtor = debtors[0]
-    speech = f"Sabse zyada udhaar {top_debtor[0]} ka hai ₹{top_debtor[1]:,.2f}."
-    if len(debtors) > 1:
-        other_names = [f"{d[0]} (₹{d[1]:,.2f})" for d in debtors[1:4]]
-        speech += f" Iske alawa {' aur '.join(other_names)} ka baaki hai."
+    if is_en:
+        speech = f"Highest outstanding debt is from {top_debtor[0]} at ₹{top_debtor[1]:,.2f}."
+        if len(debtors) > 1:
+            other_names = [f"{d[0]} (₹{d[1]:,.2f})" for d in debtors[1:4]]
+            speech += f" In addition, {' and '.join(other_names)} have pending balance."
+    else:
+        speech = f"Sabse zyada udhaar {top_debtor[0]} ka hai ₹{top_debtor[1]:,.2f}."
+        if len(debtors) > 1:
+            other_names = [f"{d[0]} (₹{d[1]:,.2f})" for d in debtors[1:4]]
+            speech += f" Iske alawa {' aur '.join(other_names)} ka baaki hai."
 
     return (speech, {"debtors": [{"customer_name": d[0], "outstanding_balance": d[1]} for d in debtors]})
 
@@ -1210,8 +1391,13 @@ def handle_voice_assistant(
             op["status"] = "committed"
             op["committed_tx_id"] = db_tx.id
 
-            type_label = "udhaar" if tx_type == TransactionType.UDHAAR else "jama"
-            reply = f"{op['customer_name']} ke khate mein ₹{op['amount']:.2f} {type_label} safaltapoorvak save kar diye gaye hain."
+            is_en = (op.get("language") == "english")
+            if is_en:
+                en_type = "credit" if tx_type == TransactionType.UDHAAR else "payment"
+                reply = f"Recorded ₹{op['amount']:.2f} {en_type} for {op['customer_name']} successfully."
+            else:
+                type_label = "udhaar" if tx_type == TransactionType.UDHAAR else "jama"
+                reply = f"{op['customer_name']} ke khate mein ₹{op['amount']:.2f} {type_label} safaltapoorvak save kar diye gaye hain."
             LAST_SESSION_REPLIES[session_id] = reply
 
             return VoiceAssistantResponse(
@@ -1227,10 +1413,14 @@ def handle_voice_assistant(
             raise HTTPException(status_code=500, detail="Database persistence failed.")
 
     # 2. Direct Cancellation Action (Client Button or spoken "Nahi, cancel kar do")
-    if payload.action == "cancel" or (op_id and raw_text.lower() in ("nahi", "nahin", "cancel", "radd karo", "cancel kar do", "mat karo", "mat save karo")):
+    if payload.action == "cancel" or (op_id and raw_text.lower() in ("nahi", "nahin", "no", "cancel", "radd karo", "cancel kar do", "mat karo", "mat save karo")):
+        is_en = False
         if op_id and op_id in PENDING_VOICE_OPERATIONS:
             PENDING_VOICE_OPERATIONS[op_id]["status"] = "cancelled"
-        reply = "Theek hai, entry cancel kar di gayi hai. Ledger mein koi badlaav nahi hua."
+            is_en = (PENDING_VOICE_OPERATIONS[op_id].get("language") == "english")
+        if not is_en and raw_text.lower() in ("no", "cancel"):
+            is_en = True
+        reply = "Transaction cancelled. No changes made to the ledger." if is_en else "Theek hai, entry cancel kar di gayi hai. Ledger mein koi badlaav nahi hua."
         LAST_SESSION_REPLIES[session_id] = reply
         return VoiceAssistantResponse(reply_message=reply, action_taken="cancelled", requires_confirmation=False)
 
@@ -1284,8 +1474,13 @@ def handle_voice_assistant(
             if intent_result.corrected_customer_name:
                 op["customer_name"] = intent_result.corrected_customer_name
 
-            type_label = "udhaar" if op["transaction_type"] == "UDHAAR" else "jama"
-            reply = f"Theek hai, {op['customer_name']} ke khate mein amount badal kar ₹{op['amount']:.2f} {type_label} kar diya gaya hai. Kya main save kar doon?"
+            is_en = (op.get("language") == "english") or (intent_result.language == "english")
+            if is_en:
+                en_type = "credit" if op["transaction_type"] == "UDHAAR" else "payment"
+                reply = f"Updated amount for {op['customer_name']} to ₹{op['amount']:.2f} {en_type}. Should I save it?"
+            else:
+                type_label = "udhaar" if op["transaction_type"] == "UDHAAR" else "jama"
+                reply = f"Theek hai, {op['customer_name']} ke khate mein amount badal kar ₹{op['amount']:.2f} {type_label} kar diya gaya hai. Kya main save kar doon?"
             LAST_SESSION_REPLIES[session_id] = reply
             return VoiceAssistantResponse(
                 reply_message=reply,
@@ -1293,58 +1488,63 @@ def handle_voice_assistant(
                 requires_confirmation=True,
                 pending_operation=PendingOperationData(**op)
             )
-        reply = "Koi pending entry nahi mili jise correct kiya ja sake."
-        return VoiceAssistantResponse(reply_message=reply, action_taken="no_pending_operation", requires_confirmation=False)
+        msg = "No pending entry found to correct." if intent_result.language == "english" else "Koi pending entry nahi mili jise correct kiya ja sake."
+        return VoiceAssistantResponse(reply_message=msg, action_taken="no_pending_operation", requires_confirmation=False)
 
     # Intent D: QUERY CUSTOMER BALANCE
     if intent_result.intent == VoiceIntentType.QUERY_CUSTOMER_BALANCE:
         if not intent_result.customer_name:
-            reply = "Aap kiska khata dekhna chahte hain? Kripya customer ka naam bolein."
-            return VoiceAssistantResponse(reply_message=reply, action_taken="missing_customer_name", requires_confirmation=False)
+            msg = "Whose khata would you like to check? Please say the customer's name." if intent_result.language == "english" else "Aap kiska khata dekhna chahte hain? Kripya customer ka naam bolein."
+            return VoiceAssistantResponse(reply_message=msg, action_taken="missing_customer_name", requires_confirmation=False)
 
-        speech, data = execute_customer_balance_voice_query(intent_result.customer_name, db, user_id=auth_user_id)
+        speech, data = execute_customer_balance_voice_query(intent_result.customer_name, db, user_id=auth_user_id, language=intent_result.language)
         LAST_SESSION_REPLIES[session_id] = speech
         return VoiceAssistantResponse(reply_message=speech, action_taken="customer_balance", requires_confirmation=False, data=data)
 
     # Intent E: QUERY DAILY SUMMARY
     if intent_result.intent == VoiceIntentType.QUERY_DAILY_SUMMARY:
-        speech, data = execute_summary_voice_query("today", intent_result.transaction_type, db, user_id=auth_user_id)
+        speech, data = execute_summary_voice_query("today", intent_result.transaction_type, db, user_id=auth_user_id, language=intent_result.language)
         LAST_SESSION_REPLIES[session_id] = speech
         return VoiceAssistantResponse(reply_message=speech, action_taken="daily_summary", requires_confirmation=False, data=data)
 
     # Intent F: QUERY DATE RANGE SUMMARY ("Kal", "Pichhle 7 din", "Is mahine")
     if intent_result.intent == VoiceIntentType.QUERY_DATE_RANGE_SUMMARY:
-        speech, data = execute_summary_voice_query(intent_result.date_filter or "today", None, db, user_id=auth_user_id)
+        speech, data = execute_summary_voice_query(intent_result.date_filter or "today", None, db, user_id=auth_user_id, language=intent_result.language)
         LAST_SESSION_REPLIES[session_id] = speech
         return VoiceAssistantResponse(reply_message=speech, action_taken="date_range_summary", requires_confirmation=False, data=data)
 
     # Intent G: QUERY CUSTOMER LIST ("Kis-kis customer ke paise baaki hain?")
     if intent_result.intent == VoiceIntentType.QUERY_CUSTOMER_LIST:
-        speech, data = execute_customer_list_voice_query(db, user_id=auth_user_id)
+        speech, data = execute_customer_list_voice_query(db, user_id=auth_user_id, language=intent_result.language)
         LAST_SESSION_REPLIES[session_id] = speech
         return VoiceAssistantResponse(reply_message=speech, action_taken="customer_list", requires_confirmation=False, data=data)
 
     # Intent H: STOP ASSISTANT
     if intent_result.intent == VoiceIntentType.STOP_ASSISTANT:
-        reply = "Assistant band kar diya gaya hai. Jab zaroorat ho, 'Suno Hisab' bolein ya mic dabayein."
-        return VoiceAssistantResponse(reply_message=reply, action_taken="stopped", requires_confirmation=False)
+        msg = "Assistant stopped. Say 'Suno Hisab' or tap the mic when needed." if intent_result.language == "english" else "Assistant band kar diya gaya hai. Jab zaroorat ho, 'Suno Hisab' bolein ya mic dabayein."
+        return VoiceAssistantResponse(reply_message=msg, action_taken="stopped", requires_confirmation=False)
 
     # Intent I: ENTRY (Two-Step Workflow: Prepare first, never save without confirmation!)
     if intent_result.intent == VoiceIntentType.ENTRY:
         if not intent_result.customer_name or not intent_result.amount or not intent_result.transaction_type:
-            reply = "Customer ka naam ya amount clear nahi suna. Kripya dobara bolein, jaise 'Rahul ko 500 udhaar diya'."
-            return VoiceAssistantResponse(reply_message=reply, action_taken="incomplete_entry", requires_confirmation=False)
+            msg = "Could not clearly hear customer name or amount. Please say again, e.g. 'Record 500 credit for Rahul'." if intent_result.language == "english" else "Customer ka naam ya amount clear nahi suna. Kripya dobara bolein, jaise 'Rahul ko 500 udhaar diya'."
+            return VoiceAssistantResponse(reply_message=msg, action_taken="incomplete_entry", requires_confirmation=False)
 
         pending_op = create_pending_operation(
             customer_name=intent_result.customer_name,
             amount=intent_result.amount,
             transaction_type=intent_result.transaction_type,
             session_id=session_id,
-            user_id=auth_user_id
+            user_id=auth_user_id,
+            language=intent_result.language
         )
 
-        type_label = "udhaar" if intent_result.transaction_type == "UDHAAR" else "jama"
-        reply = f"{intent_result.customer_name} ke khate mein ₹{intent_result.amount:.2f} {type_label} likhne hain. Kya main save kar doon?"
+        if intent_result.language == "english":
+            en_type = "credit" if intent_result.transaction_type == "UDHAAR" else "payment"
+            reply = f"Record ₹{intent_result.amount:.2f} {en_type} for {intent_result.customer_name}? Say 'yes' to confirm or 'no' to cancel."
+        else:
+            type_label = "udhaar" if intent_result.transaction_type == "UDHAAR" else "jama"
+            reply = f"{intent_result.customer_name} ke khate mein ₹{intent_result.amount:.2f} {type_label} likhne hain. Kya main save kar doon?"
         LAST_SESSION_REPLIES[session_id] = reply
 
         return VoiceAssistantResponse(
@@ -1440,9 +1640,10 @@ def handle_voice_assistant(
     # Intent L: QUERY CUSTOMER HISTORY
     if intent_result.intent == VoiceIntentType.QUERY_CUSTOMER_HISTORY:
         cname = intent_result.customer_name
+        is_en = (intent_result.language == "english")
         if not cname:
-            reply = "Aap kiska purana hisab dekhna chahte hain? Kripya customer ka naam bolein."
-            return VoiceAssistantResponse(reply_message=reply, action_taken="missing_customer_name", requires_confirmation=False)
+            msg = "Whose transaction history would you like to see? Please say the customer name." if is_en else "Aap kiska purana hisab dekhna chahte hain? Kripya customer ka naam bolein."
+            return VoiceAssistantResponse(reply_message=msg, action_taken="missing_customer_name", requires_confirmation=False)
 
         history_query = db.query(Transaction).filter(func.lower(Transaction.customer_name) == cname.lower())
         if auth_user_id is not None:
@@ -1453,23 +1654,33 @@ def handle_voice_assistant(
             .all()
         )
         if not records:
-            reply = f"Khate mein '{cname}' naam ka koi hisab nahi mila."
-            LAST_SESSION_REPLIES[session_id] = reply
-            return VoiceAssistantResponse(reply_message=reply, action_taken="not_found", requires_confirmation=False)
+            msg = f"No transaction history found for '{cname}'." if is_en else f"Khate mein '{cname}' naam ka koi hisab nahi mila."
+            LAST_SESSION_REPLIES[session_id] = msg
+            return VoiceAssistantResponse(reply_message=msg, action_taken="not_found", requires_confirmation=False)
 
         canonical = records[0].customer_name
         u_p = sum(t.amount_paise for t in records if t.transaction_type == TransactionType.UDHAAR)
         j_p = sum(t.amount_paise for t in records if t.transaction_type == TransactionType.JAMA)
         bal = round((u_p - j_p) / 100.0, 2)
         last_tx = records[0]
-        last_type_label = "udhaar" if last_tx.transaction_type == TransactionType.UDHAAR else "jama"
 
-        reply = (
-            f"{canonical} ke khate mein kul {len(records)} entries hain. "
-            f"Kul udhaar ₹{round(u_p/100.0, 2):,.2f}, kul jama ₹{round(j_p/100.0, 2):,.2f}, "
-            f"aur vartamaan baaki ₹{bal:,.2f} hai. "
-            f"Aakhiri entry ₹{last_tx.amount:.2f} {last_type_label} ki thi."
-        )
+        if is_en:
+            en_type = "credit" if last_tx.transaction_type == TransactionType.UDHAAR else "payment"
+            reply = (
+                f"{canonical} has {len(records)} entries in khata. "
+                f"Total credit is ₹{round(u_p/100.0, 2):,.2f}, total payments ₹{round(j_p/100.0, 2):,.2f}, "
+                f"and current balance is ₹{bal:,.2f}. "
+                f"Last entry was ₹{last_tx.amount:.2f} {en_type}."
+            )
+        else:
+            last_type_label = "udhaar" if last_tx.transaction_type == TransactionType.UDHAAR else "jama"
+            reply = (
+                f"{canonical} ke khate mein kul {len(records)} entries hain. "
+                f"Kul udhaar ₹{round(u_p/100.0, 2):,.2f}, kul jama ₹{round(j_p/100.0, 2):,.2f}, "
+                f"aur vartamaan baaki ₹{bal:,.2f} hai. "
+                f"Aakhiri entry ₹{last_tx.amount:.2f} {last_type_label} ki thi."
+            )
+
         LAST_SESSION_REPLIES[session_id] = reply
         return VoiceAssistantResponse(
             reply_message=reply,
@@ -1478,7 +1689,1890 @@ def handle_voice_assistant(
             data={"customer_name": canonical, "count": len(records), "balance": bal}
         )
 
+    # Intent M: NAVIGATE VIEW
+    if intent_result.intent == VoiceIntentType.NAVIGATE_VIEW:
+        target = intent_result.target_view or "dashboard"
+        is_en = (intent_result.language == "english")
+        view_names = {
+            "dashboard": ("Dashboard", "Dashboard"),
+            "ledger": ("Ledger Book", "Bahi Khata"),
+            "customers": ("Customer Directory", "Grahak Suchi"),
+            "inventory": ("Inventory Stock", "Inventory / Stock"),
+            "reminders": ("Payment Reminders", "Payment Reminders"),
+            "reports": ("Analytics Reports", "Reports aur Analytics"),
+            "settings": ("Shop Settings", "Shop Settings"),
+            "team": ("Team & Access", "Team aur Staff Management")
+        }
+        name_en, name_hi = view_names.get(target, (target.title(), target.title()))
+        reply = f"Opening {name_en} screen." if is_en else f"{name_hi} screen khol di gayi hai."
+        LAST_SESSION_REPLIES[session_id] = reply
+        return VoiceAssistantResponse(
+            reply_message=reply,
+            action_taken="navigate_view",
+            requires_confirmation=False,
+            data={"target_view": target}
+        )
+
+    # Intent N: PREPARE REMINDER
+    if intent_result.intent == VoiceIntentType.PREPARE_REMINDER:
+        cname = intent_result.customer_name
+        is_en = (intent_result.language == "english")
+        if not cname:
+            reply = "Who would you like to prepare a payment reminder for?" if is_en else "Aap kis customer ke liye reminder taiyar karna chahte hain?"
+            return VoiceAssistantResponse(reply_message=reply, action_taken="missing_customer_name", requires_confirmation=False)
+
+        q = db.query(Transaction).filter(func.lower(Transaction.customer_name) == cname.lower())
+        if auth_user_id is not None:
+            q = q.filter(Transaction.user_id == auth_user_id)
+        txs = q.all()
+        if not txs:
+            reply = f"No khata found for '{cname}'." if is_en else f"'{cname}' ka koi khata nahi mila."
+            return VoiceAssistantResponse(reply_message=reply, action_taken="not_found", requires_confirmation=False)
+
+        canonical = txs[0].customer_name
+        u_p = sum(t.amount_paise for t in txs if t.transaction_type == TransactionType.UDHAAR)
+        j_p = sum(t.amount_paise for t in txs if t.transaction_type == TransactionType.JAMA)
+        bal = round((u_p - j_p) / 100.0, 2)
+
+        if bal <= 0:
+            reply = f"{canonical} has no outstanding balance. Payment reminder not required." if is_en else f"{canonical} ka koi baki hisab nahi hai. Reminder ki zarurat nahi hai."
+            return VoiceAssistantResponse(reply_message=reply, action_taken="already_cleared", requires_confirmation=False)
+
+        shop_title = current_user.shop_name if current_user and current_user.shop_name else "HisabAI Store"
+        reminder_msg = f"Namaste {canonical} ji, aapka {shop_title} par kul baki hisab Rs. {bal:,.2f} hai. Kripya samay par bhugtan karein. Dhanyawad!"
+        wa_url = f"https://api.whatsapp.com/send?text={quote(reminder_msg)}"
+
+        reply = (
+            f"Prepared payment reminder for {canonical} for ₹{bal:,.2f}."
+            if is_en else
+            f"{canonical} ke liye ₹{bal:,.2f} ka payment reminder taiyar kar diya gaya hai. Aap WhatsApp par bhej sakte hain."
+        )
+        LAST_SESSION_REPLIES[session_id] = reply
+        return VoiceAssistantResponse(
+            reply_message=reply,
+            action_taken="prepared_reminder",
+            requires_confirmation=False,
+            data={
+                "customer_name": canonical,
+                "balance": bal,
+                "message": reminder_msg,
+                "whatsapp_url": wa_url
+            }
+        )
+
+    # Intent O: PREPARE RECEIPT
+    if intent_result.intent == VoiceIntentType.PREPARE_RECEIPT:
+        cname = intent_result.customer_name
+        is_en = (intent_result.language == "english")
+        q = db.query(Transaction)
+        if auth_user_id is not None:
+            q = q.filter(Transaction.user_id == auth_user_id)
+        if cname:
+            q = q.filter(func.lower(Transaction.customer_name) == cname.lower())
+        last_tx = q.order_by(Transaction.timestamp.desc()).first()
+
+        if not last_tx:
+            reply = "No transaction found to generate a receipt." if is_en else "Receipt banane ke liye koi transaction nahi mili."
+            return VoiceAssistantResponse(reply_message=reply, action_taken="not_found", requires_confirmation=False)
+
+        receipt_url = f"/api/receipts/{last_tx.id}/pdf"
+        reply = (
+            f"Receipt is ready for {last_tx.customer_name} (₹{last_tx.amount:.2f})."
+            if is_en else
+            f"{last_tx.customer_name} ke ₹{last_tx.amount:.2f} ke lenden ki receipt taiyar hai."
+        )
+        LAST_SESSION_REPLIES[session_id] = reply
+        return VoiceAssistantResponse(
+            reply_message=reply,
+            action_taken="prepared_receipt",
+            requires_confirmation=False,
+            data={"transaction_id": last_tx.id, "receipt_url": receipt_url}
+        )
+
     # Default / UNKNOWN Intent
-    reply = intent_result.clarification_message or "Aapne kya kaha, main theek se samajh nahi paaya. Kripya dobara bolein."
+    default_msg = (
+        "I didn't quite catch that. You can check customer balances, daily collection, or record credit and payments."
+        if intent_result.language == "english" else
+        "Aapne kya kaha, main theek se samajh nahi paaya. Kripya dobara bolein."
+    )
+    reply = intent_result.clarification_message or default_msg
     LAST_SESSION_REPLIES[session_id] = reply
     return VoiceAssistantResponse(reply_message=reply, action_taken="clarification", requires_confirmation=False)
+
+
+# ==========================================
+# Phase 1: Smart Payment Reminder Endpoints
+# ==========================================
+
+@app.get(
+    "/api/reminders/eligible",
+    response_model=EligibleRemindersResponse,
+    summary="Get all customers with positive debt eligible for payment reminders"
+)
+def get_eligible_reminders(
+    current_user: User = Depends(require_current_user),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+    today_date = get_current_ist_time().date()
+
+    # Aggregate customer ledger balances
+    txs = db.query(Transaction).filter(Transaction.user_id == shop_id).all()
+    cust_groups: Dict[str, List[Transaction]] = {}
+    for t in txs:
+        cust_groups.setdefault(t.customer_name, []).append(t)
+
+    eligible_list: List[ReminderCustomerItem] = []
+    total_debt = 0.0
+
+    for cname, records in cust_groups.items():
+        u_paise = sum(r.amount_paise for r in records if r.transaction_type == TransactionType.UDHAAR)
+        j_paise = sum(r.amount_paise for r in records if r.transaction_type == TransactionType.JAMA)
+        bal_paise = u_paise - j_paise
+        bal = round(bal_paise / 100.0, 2)
+
+        if bal > 0:
+            total_debt += bal
+            sorted_txs = sorted(records, key=lambda x: x.timestamp, reverse=True)
+            last_tx_date = sorted_txs[0].timestamp.strftime("%Y-%m-%d %H:%M") if sorted_txs else None
+            phone = sorted_txs[0].customer_phone if sorted_txs and sorted_txs[0].customer_phone else None
+
+            # Check reminder history
+            last_reminder = (
+                db.query(PaymentReminder)
+                .filter(
+                    PaymentReminder.shop_id == shop_id,
+                    func.lower(PaymentReminder.customer_name) == cname.lower()
+                )
+                .order_by(PaymentReminder.created_at.desc())
+                .first()
+            )
+
+            already_today = False
+            last_sent_str = None
+            if last_reminder:
+                last_sent_str = last_reminder.created_at.strftime("%Y-%m-%d %H:%M")
+                if last_reminder.created_at.date() == today_date:
+                    already_today = True
+
+            eligible_list.append(
+                ReminderCustomerItem(
+                    customer_name=cname,
+                    customer_phone=phone,
+                    outstanding_balance=bal,
+                    last_transaction_date=last_tx_date,
+                    last_reminder_sent_at=last_sent_str,
+                    already_reminded_today=already_today
+                )
+            )
+
+    eligible_list.sort(key=lambda x: x.outstanding_balance, reverse=True)
+    return EligibleRemindersResponse(
+        total_eligible=len(eligible_list),
+        total_outstanding_amount=round(total_debt, 2),
+        customers=eligible_list
+    )
+
+
+@app.post(
+    "/api/reminders/generate",
+    response_model=GeneratedReminderResponse,
+    summary="Generate polite reminder text and WhatsApp/SMS click-to-chat links"
+)
+def generate_reminder_message(
+    payload: GenerateReminderRequest,
+    current_user: User = Depends(require_current_user),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+    cname = payload.customer_name.strip()
+
+    # Calculate authoritative balance
+    records = (
+        db.query(Transaction)
+        .filter(
+            Transaction.user_id == shop_id,
+            func.lower(Transaction.customer_name) == cname.lower()
+        )
+        .all()
+    )
+    if not records:
+        raise HTTPException(status_code=404, detail=f"No khata records found for customer '{cname}'.")
+
+    canonical_name = records[0].customer_name
+    u_p = sum(t.amount_paise for t in records if t.transaction_type == TransactionType.UDHAAR)
+    j_p = sum(t.amount_paise for t in records if t.transaction_type == TransactionType.JAMA)
+    bal = round((u_p - j_p) / 100.0, 2)
+
+    shop_title = current_user.shop_name or "My Store"
+    owner_str = f" - {current_user.owner_name}" if current_user.owner_name else ""
+
+    if payload.tone == "urgent":
+        msg = (
+            f"Namaste {canonical_name} ji, aapka {shop_title} par Rs. {bal:,.2f} ka hisab kafi samay se baki hai. "
+            f"Kripya karke jald se jald bhugtan karein taaki khata regular rahe.{owner_str} Dhanyawad!"
+        )
+    elif payload.tone == "formal":
+        msg = (
+            f"Aadarniya {canonical_name} ji, {shop_title} khata suchna: aapki vartamaan baki rashi Rs. {bal:,.2f} hai. "
+            f"Kripya suvidha-anusar bhugtan nishchit karein.{owner_str}"
+        )
+    else:  # polite default
+        msg = (
+            f"Namaste {canonical_name} ji, aapka {shop_title} par kul baki hisab Rs. {bal:,.2f} hai. "
+            f"Kripya samay milte hi bhugtan karein.{owner_str} Dhanyawad!"
+        )
+
+    # Clean phone digits for WhatsApp URL
+    clean_phone = "".join(filter(str.isdigit, payload.customer_phone or ""))
+    if clean_phone and len(clean_phone) == 10:
+        clean_phone = "91" + clean_phone
+
+    encoded_msg = quote(msg)
+    if clean_phone:
+        whatsapp_url = f"https://wa.me/{clean_phone}?text={encoded_msg}"
+        sms_url = f"sms:{clean_phone}?body={encoded_msg}"
+    else:
+        whatsapp_url = f"https://api.whatsapp.com/send?text={encoded_msg}"
+        sms_url = f"sms:?body={encoded_msg}"
+
+    return GeneratedReminderResponse(
+        customer_name=canonical_name,
+        customer_phone=payload.customer_phone,
+        outstanding_balance=bal,
+        message_text=msg,
+        whatsapp_url=whatsapp_url,
+        sms_url=sms_url
+    )
+
+
+@app.post(
+    "/api/reminders/record",
+    summary="Record sent or prepared payment reminder"
+)
+def record_reminder_sent(
+    payload: RecordReminderRequest,
+    current_user: User = Depends(require_current_user),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+    bal_paise = int(round(float(payload.balance_amount) * 100))
+
+    reminder = PaymentReminder(
+        shop_id=shop_id,
+        user_id=current_user.id,
+        customer_name=payload.customer_name.strip(),
+        customer_phone=payload.customer_phone,
+        balance_snapshot_paise=bal_paise,
+        message_text=payload.message_text,
+        delivery_method=payload.delivery_method,
+        delivery_status=payload.delivery_status
+    )
+    db.add(reminder)
+    db.commit()
+    db.refresh(reminder)
+
+    log_audit_event(
+        db, shop_id, current_user, "REMINDER_RECORDED",
+        resource_type="customer", resource_id=payload.customer_name,
+        details={"balance": payload.balance_amount, "method": payload.delivery_method}
+    )
+
+    return {"success": True, "reminder_id": reminder.id}
+
+
+@app.get(
+    "/api/reminders/history",
+    response_model=List[ReminderHistoryItem],
+    summary="Get history of payment reminders"
+)
+def get_reminders_history(
+    customer_name: Optional[str] = None,
+    limit: int = 50,
+    current_user: User = Depends(require_current_user),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+    q = db.query(PaymentReminder).filter(PaymentReminder.shop_id == shop_id)
+    if customer_name:
+        q = q.filter(func.lower(PaymentReminder.customer_name) == customer_name.strip().lower())
+    records = q.order_by(PaymentReminder.created_at.desc()).limit(limit).all()
+
+    return [
+        ReminderHistoryItem(
+            id=r.id,
+            customer_name=r.customer_name,
+            customer_phone=r.customer_phone,
+            balance_snapshot=round(r.balance_snapshot_paise / 100.0, 2),
+            message_text=r.message_text,
+            delivery_method=r.delivery_method,
+            delivery_status=r.delivery_status,
+            created_at=r.created_at.strftime("%Y-%m-%d %H:%M")
+        )
+        for r in records
+    ]
+
+
+@app.get(
+    "/api/reminders/history/{customer_name}",
+    response_model=List[ReminderHistoryItem],
+    summary="Get reminder history for a specific customer"
+)
+def get_customer_reminder_history(
+    customer_name: str,
+    current_user: User = Depends(require_current_user),
+    db: Session = Depends(get_db)
+):
+    return get_reminders_history(customer_name=customer_name, limit=20, current_user=current_user, db=db)
+
+
+# ==========================================
+# Phase 1: Transaction Search, Filtering, Pagination & CSV Export
+# ==========================================
+
+@app.get(
+    "/api/transactions/search",
+    response_model=TransactionSearchResponse,
+    summary="Search, filter, and paginate transactions with server-side aggregation"
+)
+def search_transactions(
+    query: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    min_amount: Optional[float] = None,
+    max_amount: Optional[float] = None,
+    tx_type: Optional[str] = "ALL",
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    current_user: User = Depends(require_current_user),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+    base_q = db.query(Transaction).filter(Transaction.user_id == shop_id)
+
+    # 1. Text Search across customer_name, customer_phone, notes
+    if query and query.strip():
+        term = f"%{query.strip().lower()}%"
+        base_q = base_q.filter(
+            func.lower(Transaction.customer_name).like(term) |
+            func.lower(Transaction.customer_phone).like(term) |
+            func.lower(Transaction.notes).like(term)
+        )
+
+    # 2. Date Range Filter
+    if start_date:
+        try:
+            s_dt = datetime.strptime(start_date.strip(), "%Y-%m-%d").replace(tzinfo=KOLKATA_TZ)
+            base_q = base_q.filter(Transaction.timestamp >= s_dt)
+        except ValueError:
+            pass
+
+    if end_date:
+        try:
+            e_dt = datetime.strptime(end_date.strip(), "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=KOLKATA_TZ)
+            base_q = base_q.filter(Transaction.timestamp <= e_dt)
+        except ValueError:
+            pass
+
+    # 3. Amount Range Filter
+    if min_amount is not None and min_amount > 0:
+        base_q = base_q.filter(Transaction.amount >= min_amount)
+    if max_amount is not None and max_amount > 0:
+        base_q = base_q.filter(Transaction.amount <= max_amount)
+
+    # 4. Transaction Type Filter
+    if tx_type in ("UDHAAR", "JAMA"):
+        base_q = base_q.filter(Transaction.transaction_type == TransactionType(tx_type))
+
+    # Aggregations
+    all_matching = base_q.all()
+    total_count = len(all_matching)
+    u_total = sum(t.amount for t in all_matching if t.transaction_type == TransactionType.UDHAAR)
+    j_total = sum(t.amount for t in all_matching if t.transaction_type == TransactionType.JAMA)
+
+    # Pagination
+    total_pages = max(1, (total_count + limit - 1) // limit)
+    offset = (page - 1) * limit
+    paginated_records = (
+        base_q
+        .order_by(Transaction.timestamp.desc(), Transaction.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    items = [
+        TransactionSearchItem(
+            id=t.id,
+            customer_name=t.customer_name,
+            customer_phone=t.customer_phone,
+            notes=t.notes,
+            amount=round(t.amount, 2),
+            amount_paise=t.amount_paise,
+            transaction_type=t.transaction_type.value,
+            timestamp=t.timestamp.strftime("%Y-%m-%d %H:%M")
+        )
+        for t in paginated_records
+    ]
+
+    return TransactionSearchResponse(
+        total_count=total_count,
+        page=page,
+        page_size=limit,
+        total_pages=total_pages,
+        total_amount_udhaar=round(u_total, 2),
+        total_amount_jama=round(j_total, 2),
+        transactions=items
+    )
+
+
+@app.get(
+    "/api/transactions/export",
+    summary="Export filtered transactions to CSV with formula injection protection"
+)
+def export_transactions_csv(
+    query: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    min_amount: Optional[float] = None,
+    max_amount: Optional[float] = None,
+    tx_type: Optional[str] = "ALL",
+    current_user: User = Depends(require_current_user),
+    db: Session = Depends(get_db)
+):
+    # Enforce permissions: STAFF cannot export full ledger
+    user_role = getattr(current_user, "role", "OWNER") or "OWNER"
+    if user_role not in ("OWNER", "MANAGER"):
+        raise HTTPException(status_code=403, detail="Permission denied. Only Owner or Manager can export ledger data.")
+
+    shop_id = get_effective_shop_id(current_user)
+    base_q = db.query(Transaction).filter(Transaction.user_id == shop_id)
+
+    if query and query.strip():
+        term = f"%{query.strip().lower()}%"
+        base_q = base_q.filter(
+            func.lower(Transaction.customer_name).like(term) |
+            func.lower(Transaction.customer_phone).like(term) |
+            func.lower(Transaction.notes).like(term)
+        )
+
+    if start_date:
+        try:
+            s_dt = datetime.strptime(start_date.strip(), "%Y-%m-%d").replace(tzinfo=KOLKATA_TZ)
+            base_q = base_q.filter(Transaction.timestamp >= s_dt)
+        except ValueError:
+            pass
+
+    if end_date:
+        try:
+            e_dt = datetime.strptime(end_date.strip(), "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=KOLKATA_TZ)
+            base_q = base_q.filter(Transaction.timestamp <= e_dt)
+        except ValueError:
+            pass
+
+    if min_amount is not None and min_amount > 0:
+        base_q = base_q.filter(Transaction.amount >= min_amount)
+    if max_amount is not None and max_amount > 0:
+        base_q = base_q.filter(Transaction.amount <= max_amount)
+
+    if tx_type in ("UDHAAR", "JAMA"):
+        base_q = base_q.filter(Transaction.transaction_type == TransactionType(tx_type))
+
+    records = base_q.order_by(Transaction.timestamp.desc(), Transaction.id.desc()).all()
+
+    # Generate CSV with formula sanitization
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Transaction ID", "Date Time (IST)", "Customer Name", "Customer Phone", "Type", "Amount (INR)", "Notes"])
+
+    for r in records:
+        writer.writerow([
+            sanitize_csv_cell(r.id),
+            sanitize_csv_cell(r.timestamp.strftime("%Y-%m-%d %H:%M:%S")),
+            sanitize_csv_cell(r.customer_name),
+            sanitize_csv_cell(r.customer_phone or ""),
+            sanitize_csv_cell(r.transaction_type.value),
+            sanitize_csv_cell(f"{r.amount:.2f}"),
+            sanitize_csv_cell(r.notes or "")
+        ])
+
+    csv_content = output.getvalue()
+    log_audit_event(db, shop_id, current_user, "TRANSACTIONS_EXPORTED", details={"count": len(records)})
+
+    return Response(
+        content=csv_content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename=hisab_transactions_{get_current_ist_time().strftime('%Y%m%d')}.csv"}
+    )
+
+
+# ==========================================
+# Phase 1: PDF Receipts & Statements
+# ==========================================
+
+@app.get(
+    "/api/receipts/{transaction_id}/pdf",
+    summary="Download or print a valid PDF receipt for a transaction"
+)
+def get_transaction_receipt_pdf(
+    transaction_id: int,
+    current_user: User = Depends(require_current_user),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+    tx = db.query(Transaction).filter(Transaction.id == transaction_id, Transaction.user_id == shop_id).first()
+    if not tx:
+        raise HTTPException(status_code=404, detail="Transaction not found.")
+
+    # Calculate balance before and after this transaction
+    all_cust_txs = (
+        db.query(Transaction)
+        .filter(Transaction.user_id == shop_id, func.lower(Transaction.customer_name) == tx.customer_name.lower())
+        .order_by(Transaction.timestamp.asc(), Transaction.id.asc())
+        .all()
+    )
+
+    prev_bal = 0.0
+    for item in all_cust_txs:
+        if item.id == tx.id:
+            break
+        if item.transaction_type == TransactionType.UDHAAR:
+            prev_bal += item.amount
+        else:
+            prev_bal -= item.amount
+
+    if tx.transaction_type == TransactionType.UDHAAR:
+        curr_bal = prev_bal + tx.amount
+    else:
+        curr_bal = prev_bal - tx.amount
+
+    pdf_bytes = pdf_generator.generate_receipt_pdf(
+        shop_name=current_user.shop_name or "HisabAI Store",
+        owner_name=current_user.owner_name or current_user.username,
+        customer_name=tx.customer_name,
+        transaction_id=tx.id,
+        tx_type=tx.transaction_type.value,
+        amount_rupees=tx.amount,
+        previous_balance=round(prev_bal, 2),
+        current_balance=round(curr_bal, 2),
+        timestamp_str=tx.timestamp.strftime("%Y-%m-%d %H:%M IST")
+    )
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"inline; filename=receipt_{tx.id}.pdf"}
+    )
+
+
+@app.get(
+    "/api/customers/{customer_name}/statement/pdf",
+    summary="Download complete customer ledger statement as PDF"
+)
+def get_customer_statement_pdf(
+    customer_name: str,
+    current_user: User = Depends(require_current_user),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+    cname = customer_name.strip()
+    records = (
+        db.query(Transaction)
+        .filter(Transaction.user_id == shop_id, func.lower(Transaction.customer_name) == cname.lower())
+        .order_by(Transaction.timestamp.asc(), Transaction.id.asc())
+        .all()
+    )
+    if not records:
+        raise HTTPException(status_code=404, detail=f"No transactions found for '{cname}'.")
+
+    canonical_name = records[0].customer_name
+    u_total = sum(r.amount for r in records if r.transaction_type == TransactionType.UDHAAR)
+    j_total = sum(r.amount for r in records if r.transaction_type == TransactionType.JAMA)
+    current_bal = round(u_total - j_total, 2)
+
+    tx_list = [
+        {
+            "amount": r.amount,
+            "transaction_type": r.transaction_type.value,
+            "timestamp": r.timestamp.strftime("%Y-%m-%d %H:%M")
+        }
+        for r in records
+    ]
+
+    pdf_bytes = pdf_generator.generate_statement_pdf(
+        shop_name=current_user.shop_name or "HisabAI Store",
+        owner_name=current_user.owner_name or current_user.username,
+        customer_name=canonical_name,
+        transactions=tx_list,
+        lifetime_udhaar=round(u_total, 2),
+        lifetime_jama=round(j_total, 2),
+        current_balance=current_bal
+    )
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=statement_{quote(canonical_name)}.pdf"}
+    )
+
+
+# ==========================================
+# Phase 2: AI Daily Business Summary
+# ==========================================
+
+@app.get(
+    "/api/analytics/daily-summary",
+    response_model=DailyAnalyticsSummary,
+    summary="Authoritative daily summary with optional AI narrative explanation"
+)
+def get_daily_analytics_summary(
+    date: Optional[str] = None,
+    generate_ai: bool = True,
+    current_user: User = Depends(require_current_user),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+    now_ist = get_current_ist_time()
+
+    if date:
+        try:
+            target_date = datetime.strptime(date.strip(), "%Y-%m-%d").date()
+        except ValueError:
+            target_date = now_ist.date()
+    else:
+        target_date = now_ist.date()
+
+    target_date_str = target_date.strftime("%Y-%m-%d")
+    daily_txs = (
+        db.query(Transaction)
+        .filter(
+            Transaction.user_id == shop_id,
+            func.date(Transaction.timestamp) == target_date_str
+        )
+        .all()
+    )
+
+    u_paise = sum(t.amount_paise for t in daily_txs if t.transaction_type == TransactionType.UDHAAR)
+    j_paise = sum(t.amount_paise for t in daily_txs if t.transaction_type == TransactionType.JAMA)
+    total_u = round(u_paise / 100.0, 2)
+    total_j = round(j_paise / 100.0, 2)
+    net_m = round((u_paise - j_paise) / 100.0, 2)
+
+    active_custs = set(t.customer_name for t in daily_txs)
+
+    top_customer = None
+    if daily_txs:
+        cust_totals: Dict[str, float] = {}
+        for t in daily_txs:
+            cust_totals[t.customer_name] = cust_totals.get(t.customer_name, 0.0) + t.amount
+        top_customer = max(cust_totals.items(), key=lambda x: x[1])[0]
+
+    metrics = {
+        "date": target_date.strftime("%Y-%m-%d"),
+        "total_udhaar": total_u,
+        "total_jama": total_j,
+        "net_movement": net_m,
+        "transaction_count": len(daily_txs),
+        "active_customers_count": len(active_custs),
+        "top_customer_today": top_customer
+    }
+
+    ai_text = None
+    if generate_ai:
+        ai_text = ai_service.generate_daily_business_summary_explanation(metrics, language="hinglish")
+
+    return DailyAnalyticsSummary(
+        date=target_date.strftime("%Y-%m-%d"),
+        total_udhaar=total_u,
+        total_jama=total_j,
+        net_movement=net_m,
+        transaction_count=len(daily_txs),
+        active_customers_count=len(active_custs),
+        top_customer_today=top_customer,
+        ai_summary_text=ai_text
+    )
+
+
+# ==========================================
+# Phase 3: Inventory Management Endpoints
+# ==========================================
+
+@app.get(
+    "/api/inventory/products",
+    response_model=List[ProductResponse],
+    summary="Get shop inventory product catalog"
+)
+def get_inventory_products(
+    current_user: User = Depends(require_current_user),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+    products = db.query(Product).filter(Product.shop_id == shop_id).order_by(Product.name.asc()).all()
+
+    return [
+        ProductResponse(
+            id=p.id,
+            name=p.name,
+            sku=p.sku,
+            category=p.category or "General",
+            unit=p.unit or "pcs",
+            cost_price=round(p.cost_price_paise / 100.0, 2),
+            selling_price=round(p.selling_price_paise / 100.0, 2),
+            current_stock=p.current_stock,
+            low_stock_threshold=p.low_stock_threshold,
+            is_low_stock=(p.current_stock <= p.low_stock_threshold),
+            created_at=p.created_at.strftime("%Y-%m-%d %H:%M"),
+            updated_at=p.updated_at.strftime("%Y-%m-%d %H:%M")
+        )
+        for p in products
+    ]
+
+
+@app.post(
+    "/api/inventory/products",
+    response_model=ProductResponse,
+    summary="Register a new product in the inventory catalog"
+)
+def create_inventory_product(
+    payload: ProductCreateRequest,
+    current_user: User = Depends(check_role(["OWNER", "MANAGER"])),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+    c_paise = int(round(float(payload.cost_price) * 100))
+    s_paise = int(round(float(payload.selling_price) * 100))
+
+    prod = Product(
+        shop_id=shop_id,
+        user_id=current_user.id,
+        name=payload.name.strip(),
+        sku=payload.sku.strip() if payload.sku else None,
+        category=payload.category.strip() if payload.category else "General",
+        unit=payload.unit.strip() if payload.unit else "pcs",
+        cost_price_paise=c_paise,
+        selling_price_paise=s_paise,
+        current_stock=float(payload.initial_stock),
+        low_stock_threshold=float(payload.low_stock_threshold)
+    )
+    db.add(prod)
+    db.commit()
+    db.refresh(prod)
+
+    # If initial stock provided, log movement
+    if payload.initial_stock > 0:
+        movement = StockMovement(
+            shop_id=shop_id,
+            user_id=current_user.id,
+            product_id=prod.id,
+            movement_type="RECEIVED",
+            quantity=float(payload.initial_stock),
+            notes="Initial stock setup"
+        )
+        db.add(movement)
+        db.commit()
+
+    log_audit_event(
+        db, shop_id, current_user, "PRODUCT_CREATED",
+        resource_type="product", resource_id=prod.id, details={"name": prod.name}
+    )
+
+    return ProductResponse(
+        id=prod.id,
+        name=prod.name,
+        sku=prod.sku,
+        category=prod.category,
+        unit=prod.unit,
+        cost_price=payload.cost_price,
+        selling_price=payload.selling_price,
+        current_stock=prod.current_stock,
+        low_stock_threshold=prod.low_stock_threshold,
+        is_low_stock=(prod.current_stock <= prod.low_stock_threshold),
+        created_at=prod.created_at.strftime("%Y-%m-%d %H:%M"),
+        updated_at=prod.updated_at.strftime("%Y-%m-%d %H:%M")
+    )
+
+
+@app.put(
+    "/api/inventory/products/{product_id}",
+    response_model=ProductResponse,
+    summary="Update product details"
+)
+def update_inventory_product(
+    product_id: int,
+    payload: ProductUpdateRequest,
+    current_user: User = Depends(check_role(["OWNER", "MANAGER"])),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+    prod = db.query(Product).filter(Product.id == product_id, Product.shop_id == shop_id).first()
+    if not prod:
+        raise HTTPException(status_code=404, detail="Product not found.")
+
+    if payload.name is not None:
+        prod.name = payload.name.strip()
+    if payload.sku is not None:
+        prod.sku = payload.sku.strip() if payload.sku else None
+    if payload.category is not None:
+        prod.category = payload.category.strip()
+    if payload.unit is not None:
+        prod.unit = payload.unit.strip()
+    if payload.cost_price is not None:
+        prod.cost_price_paise = int(round(float(payload.cost_price) * 100))
+    if payload.selling_price is not None:
+        prod.selling_price_paise = int(round(float(payload.selling_price) * 100))
+    if payload.low_stock_threshold is not None:
+        prod.low_stock_threshold = float(payload.low_stock_threshold)
+
+    prod.updated_at = get_current_ist_time()
+    db.commit()
+    db.refresh(prod)
+
+    log_audit_event(
+        db, shop_id, current_user, "PRODUCT_UPDATED",
+        resource_type="product", resource_id=prod.id, details={"name": prod.name}
+    )
+
+    return ProductResponse(
+        id=prod.id,
+        name=prod.name,
+        sku=prod.sku,
+        category=prod.category,
+        unit=prod.unit,
+        cost_price=round(prod.cost_price_paise / 100.0, 2),
+        selling_price=round(prod.selling_price_paise / 100.0, 2),
+        current_stock=prod.current_stock,
+        low_stock_threshold=prod.low_stock_threshold,
+        is_low_stock=(prod.current_stock <= prod.low_stock_threshold),
+        created_at=prod.created_at.strftime("%Y-%m-%d %H:%M"),
+        updated_at=prod.updated_at.strftime("%Y-%m-%d %H:%M")
+    )
+
+
+@app.delete(
+    "/api/inventory/products/{product_id}",
+    summary="Delete a product from the catalog"
+)
+def delete_inventory_product(
+    product_id: int,
+    current_user: User = Depends(check_role(["OWNER"])),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+    prod = db.query(Product).filter(Product.id == product_id, Product.shop_id == shop_id).first()
+    if not prod:
+        raise HTTPException(status_code=404, detail="Product not found.")
+
+    pname = prod.name
+    db.query(StockMovement).filter(StockMovement.product_id == prod.id).delete()
+    db.delete(prod)
+    db.commit()
+
+    log_audit_event(
+        db, shop_id, current_user, "PRODUCT_DELETED",
+        resource_type="product", resource_id=product_id, details={"name": pname}
+    )
+
+    return {"success": True, "message": f"Product '{pname}' deleted."}
+
+
+@app.post(
+    "/api/inventory/movements",
+    response_model=StockMovementResponse,
+    summary="Record atomic stock movement (received, sold, adjustment, return)"
+)
+def record_stock_movement(
+    payload: StockMovementCreateRequest,
+    current_user: User = Depends(require_current_user),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+    prod = db.query(Product).filter(Product.id == payload.product_id, Product.shop_id == shop_id).first()
+    if not prod:
+        raise HTTPException(status_code=404, detail="Product not found.")
+
+    qty = float(payload.quantity)
+    # Apply atomic change
+    if payload.movement_type in ("RECEIVED", "RETURN"):
+        prod.current_stock += qty
+    elif payload.movement_type in ("SOLD", "ADJUSTMENT"):
+        prod.current_stock -= qty
+
+    movement = StockMovement(
+        shop_id=shop_id,
+        user_id=current_user.id,
+        product_id=prod.id,
+        movement_type=payload.movement_type,
+        quantity=qty,
+        notes=payload.notes
+    )
+    db.add(movement)
+    db.commit()
+    db.refresh(movement)
+
+    log_audit_event(
+        db, shop_id, current_user, "STOCK_MOVEMENT",
+        resource_type="product", resource_id=prod.id,
+        details={"type": payload.movement_type, "quantity": qty, "resulting_stock": prod.current_stock}
+    )
+
+    return StockMovementResponse(
+        id=movement.id,
+        product_id=prod.id,
+        product_name=prod.name,
+        movement_type=movement.movement_type,
+        quantity=movement.quantity,
+        notes=movement.notes,
+        resulting_stock=prod.current_stock,
+        created_at=movement.created_at.strftime("%Y-%m-%d %H:%M")
+    )
+
+
+@app.get(
+    "/api/inventory/low-stock",
+    response_model=List[ProductResponse],
+    summary="Get products below their low-stock threshold"
+)
+def get_low_stock_products(
+    current_user: User = Depends(require_current_user),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+    low_stock = (
+        db.query(Product)
+        .filter(Product.shop_id == shop_id, Product.current_stock <= Product.low_stock_threshold)
+        .order_by(Product.current_stock.asc())
+        .all()
+    )
+
+    return [
+        ProductResponse(
+            id=p.id,
+            name=p.name,
+            sku=p.sku,
+            category=p.category or "General",
+            unit=p.unit or "pcs",
+            cost_price=round(p.cost_price_paise / 100.0, 2),
+            selling_price=round(p.selling_price_paise / 100.0, 2),
+            current_stock=p.current_stock,
+            low_stock_threshold=p.low_stock_threshold,
+            is_low_stock=True,
+            created_at=p.created_at.strftime("%Y-%m-%d %H:%M"),
+            updated_at=p.updated_at.strftime("%Y-%m-%d %H:%M")
+        )
+        for p in low_stock
+    ]
+
+
+# ==========================================
+# Phase 3: Multi-User Access & RBAC Endpoints
+# ==========================================
+
+@app.get(
+    "/api/team/members",
+    response_model=List[TeamMemberResponse],
+    summary="List team members of the current shop (Owner only)"
+)
+def list_team_members(
+    current_user: User = Depends(check_role(["OWNER"])),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+    members = db.query(User).filter(
+        (User.shop_id == shop_id) | (User.id == shop_id)
+    ).order_by(User.created_at.asc()).all()
+
+    return [
+        TeamMemberResponse(
+            id=m.id,
+            username=m.username,
+            owner_name=m.owner_name,
+            email=m.email,
+            role=getattr(m, "role", "STAFF") or "STAFF",
+            created_at=m.created_at.strftime("%Y-%m-%d %H:%M")
+        )
+        for m in members
+    ]
+
+
+@app.post(
+    "/api/team/members",
+    response_model=TeamMemberResponse,
+    summary="Invite or add a Manager or Staff member to the shop"
+)
+def add_team_member(
+    payload: TeamMemberCreateRequest,
+    current_user: User = Depends(check_role(["OWNER"])),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+    clean_user = payload.username.strip().lower()
+
+    if db.query(User).filter(User.username == clean_user).first():
+        raise HTTPException(status_code=400, detail="Username is already taken. Please choose another.")
+
+    clean_email = payload.email.strip().lower() if payload.email else None
+    if clean_email:
+        if not is_valid_email(clean_email):
+            raise HTTPException(status_code=400, detail=f"Invalid email format: '{clean_email}'")
+        if db.query(User).filter(User.email == clean_email).first():
+            raise HTTPException(status_code=400, detail=f"Email '{clean_email}' is already registered with another account.")
+
+    member = User(
+        username=clean_user,
+        email=clean_email,
+        shop_name=current_user.shop_name,
+        owner_name=payload.owner_name.strip() if payload.owner_name else None,
+        role=payload.role,
+        shop_id=shop_id,
+        password_hash=hash_password(payload.password),
+        created_at=get_current_ist_time()
+    )
+    db.add(member)
+    db.commit()
+    db.refresh(member)
+
+    log_audit_event(
+        db, shop_id, current_user, "TEAM_MEMBER_CREATED",
+        resource_type="user", resource_id=member.id, details={"username": member.username, "role": member.role}
+    )
+
+    return TeamMemberResponse(
+        id=member.id,
+        username=member.username,
+        owner_name=member.owner_name,
+        email=member.email,
+        role=member.role,
+        created_at=member.created_at.strftime("%Y-%m-%d %H:%M")
+    )
+
+
+@app.put(
+    "/api/team/members/{member_id}/role",
+    summary="Update role of a team member"
+)
+def update_team_member_role(
+    member_id: int,
+    payload: TeamRoleUpdateRequest,
+    current_user: User = Depends(check_role(["OWNER"])),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+    if member_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot change role of primary shop owner.")
+
+    member = db.query(User).filter(User.id == member_id, User.shop_id == shop_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Team member not found.")
+
+    old_role = member.role
+    member.role = payload.role
+    db.commit()
+
+    log_audit_event(
+        db, shop_id, current_user, "ROLE_UPDATED",
+        resource_type="user", resource_id=member.id,
+        details={"username": member.username, "old_role": old_role, "new_role": member.role}
+    )
+
+    return {"success": True, "message": f"Updated role to '{payload.role}'."}
+
+
+@app.delete(
+    "/api/team/members/{member_id}",
+    summary="Remove a team member from the shop"
+)
+def remove_team_member(
+    member_id: int,
+    current_user: User = Depends(check_role(["OWNER"])),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+    if member_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot delete the primary shop owner account.")
+
+    member = db.query(User).filter(User.id == member_id, User.shop_id == shop_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Team member not found.")
+
+    mname = member.username
+    db.query(UserSession).filter(UserSession.user_id == member.id).delete()
+    db.delete(member)
+    db.commit()
+
+    log_audit_event(
+        db, shop_id, current_user, "TEAM_MEMBER_REMOVED",
+        resource_type="user", resource_id=member_id, details={"username": mname}
+    )
+
+    return {"success": True, "message": f"Team member '{mname}' removed."}
+
+
+# ==========================================
+# Phase 4: Backup, Restore & Audit Logs
+# ==========================================
+
+@app.get(
+    "/api/backup/export",
+    summary="Create and download a consistent, validated JSON backup with SHA-256 checksum (Owner only)"
+)
+def export_shop_backup(
+    current_user: User = Depends(check_role(["OWNER"])),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+
+    # 1. Fetch all data for this shop
+    txs = db.query(Transaction).filter(Transaction.user_id == shop_id).all()
+    products = db.query(Product).filter(Product.shop_id == shop_id).all()
+    movements = db.query(StockMovement).filter(StockMovement.shop_id == shop_id).all()
+    reminders = db.query(PaymentReminder).filter(PaymentReminder.shop_id == shop_id).all()
+
+    backup_payload = {
+        "metadata": {
+            "shop_id": shop_id,
+            "shop_name": current_user.shop_name,
+            "exported_by": current_user.username,
+            "exported_at": get_current_ist_time().isoformat(),
+            "version": "2.1.0"
+        },
+        "data": {
+            "transactions": [
+                {
+                    "customer_name": t.customer_name,
+                    "customer_phone": t.customer_phone,
+                    "notes": t.notes,
+                    "amount_paise": t.amount_paise,
+                    "amount": t.amount,
+                    "transaction_type": t.transaction_type.value,
+                    "timestamp": t.timestamp.isoformat()
+                }
+                for t in txs
+            ],
+            "products": [
+                {
+                    "name": p.name,
+                    "sku": p.sku,
+                    "category": p.category,
+                    "unit": p.unit,
+                    "cost_price_paise": p.cost_price_paise,
+                    "selling_price_paise": p.selling_price_paise,
+                    "current_stock": p.current_stock,
+                    "low_stock_threshold": p.low_stock_threshold
+                }
+                for p in products
+            ],
+            "stock_movements": [
+                {
+                    "product_name": db.query(Product.name).filter(Product.id == m.product_id).scalar(),
+                    "movement_type": m.movement_type,
+                    "quantity": m.quantity,
+                    "notes": m.notes,
+                    "created_at": m.created_at.isoformat()
+                }
+                for m in movements
+            ],
+            "payment_reminders": [
+                {
+                    "customer_name": r.customer_name,
+                    "customer_phone": r.customer_phone,
+                    "balance_snapshot_paise": r.balance_snapshot_paise,
+                    "message_text": r.message_text,
+                    "delivery_method": r.delivery_method,
+                    "delivery_status": r.delivery_status,
+                    "created_at": r.created_at.isoformat()
+                }
+                for r in reminders
+            ]
+        }
+    }
+
+    # Compute checksum over canonical json
+    canonical_data_str = json.dumps(backup_payload["data"], sort_keys=True)
+    checksum = hashlib.sha256(canonical_data_str.encode("utf-8")).hexdigest()
+    backup_payload["checksum"] = checksum
+
+    log_audit_event(
+        db, shop_id, current_user, "BACKUP_EXPORTED",
+        details={"transactions": len(txs), "products": len(products)}
+    )
+
+    json_str = json.dumps(backup_payload, indent=2)
+    filename = f"hisabai_backup_{current_user.username}_{get_current_ist_time().strftime('%Y%m%d_%H%M%S')}.json"
+
+    return Response(
+        content=json_str,
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
+@app.post(
+    "/api/backup/restore",
+    summary="Restore shop database from validated JSON backup with rollback protection (Owner only)"
+)
+def restore_shop_backup(
+    payload: dict,
+    current_user: User = Depends(check_role(["OWNER"])),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+
+    # 1. Verify schema & presence of checksum and data
+    if "metadata" not in payload or "data" not in payload or "checksum" not in payload:
+        raise HTTPException(status_code=400, detail="Invalid backup file format. Missing metadata, data, or checksum.")
+
+    # 2. Checksum validation
+    canonical_data_str = json.dumps(payload["data"], sort_keys=True)
+    computed_checksum = hashlib.sha256(canonical_data_str.encode("utf-8")).hexdigest()
+    if computed_checksum != payload["checksum"]:
+        raise HTTPException(status_code=400, detail="Backup checksum mismatch! File may be corrupted or tampered.")
+
+    raw_txs = payload["data"].get("transactions", [])
+    raw_products = payload["data"].get("products", [])
+    raw_reminders = payload["data"].get("payment_reminders", [])
+
+    # 3. Transactional atomic restore
+    try:
+        # Clear existing shop data
+        db.query(Transaction).filter(Transaction.user_id == shop_id).delete()
+        db.query(StockMovement).filter(StockMovement.shop_id == shop_id).delete()
+        db.query(Product).filter(Product.shop_id == shop_id).delete()
+        db.query(PaymentReminder).filter(PaymentReminder.shop_id == shop_id).delete()
+
+        # Restore products
+        prod_map: Dict[str, int] = {}
+        for p in raw_products:
+            new_p = Product(
+                shop_id=shop_id,
+                user_id=current_user.id,
+                name=p["name"],
+                sku=p.get("sku"),
+                category=p.get("category", "General"),
+                unit=p.get("unit", "pcs"),
+                cost_price_paise=p.get("cost_price_paise", 0),
+                selling_price_paise=p.get("selling_price_paise", 0),
+                current_stock=p.get("current_stock", 0.0),
+                low_stock_threshold=p.get("low_stock_threshold", 5.0)
+            )
+            db.add(new_p)
+            db.flush()
+            prod_map[new_p.name] = new_p.id
+
+        # Restore transactions
+        for t in raw_txs:
+            t_time = datetime.fromisoformat(t["timestamp"]) if "timestamp" in t else get_current_ist_time()
+            if t_time.tzinfo is None:
+                t_time = t_time.replace(tzinfo=KOLKATA_TZ)
+
+            amt_p = t.get("amount_paise")
+            if amt_p is None:
+                amt_p = int(round(float(t.get("amount", 0)) * 100))
+
+            new_tx = Transaction(
+                user_id=shop_id,
+                customer_name=t["customer_name"],
+                customer_phone=t.get("customer_phone"),
+                notes=t.get("notes"),
+                amount_paise=amt_p,
+                amount=round(amt_p / 100.0, 2),
+                transaction_type=TransactionType(t["transaction_type"]),
+                timestamp=t_time
+            )
+            db.add(new_tx)
+
+        # Restore reminders
+        for r in raw_reminders:
+            r_time = datetime.fromisoformat(r["created_at"]) if "created_at" in r else get_current_ist_time()
+            new_rem = PaymentReminder(
+                shop_id=shop_id,
+                user_id=current_user.id,
+                customer_name=r["customer_name"],
+                customer_phone=r.get("customer_phone"),
+                balance_snapshot_paise=r.get("balance_snapshot_paise", 0),
+                message_text=r["message_text"],
+                delivery_method=r.get("delivery_method", "WHATSAPP"),
+                delivery_status=r.get("delivery_status", "SENT"),
+                created_at=r_time
+            )
+            db.add(new_rem)
+
+        db.commit()
+
+        log_audit_event(
+            db, shop_id, current_user, "BACKUP_RESTORED",
+            details={"restored_transactions": len(raw_txs), "restored_products": len(raw_products)}
+        )
+
+        return {
+            "success": True,
+            "message": "Database restored successfully.",
+            "restored_transactions": len(raw_txs),
+            "restored_products": len(raw_products)
+        }
+    except Exception as exc:
+        db.rollback()
+        logger.error(f"Backup restore failed: {exc}")
+        raise HTTPException(status_code=500, detail=f"Restore failed and changes were rolled back: {str(exc)}")
+
+
+@app.get(
+    "/api/audit-logs",
+    response_model=List[AuditLogResponse],
+    summary="View structured audit log entries for sensitive operations"
+)
+def get_audit_logs(
+    action: Optional[str] = None,
+    limit: int = Query(50, ge=1, le=200),
+    current_user: User = Depends(check_role(["OWNER", "MANAGER"])),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+    q = db.query(AuditLog).filter(AuditLog.shop_id == shop_id)
+    if action:
+        q = q.filter(AuditLog.action == action.strip().upper())
+    records = q.order_by(AuditLog.timestamp.desc()).limit(limit).all()
+
+    return [
+        AuditLogResponse(
+            id=a.id,
+            shop_id=a.shop_id,
+            user_id=a.user_id,
+            username=a.username,
+            action=a.action,
+            resource_type=a.resource_type,
+            resource_id=a.resource_id,
+            details_json=a.details_json,
+            ip_address=a.ip_address,
+            timestamp=a.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+        )
+        for a in records
+    ]
+
+
+@app.get(
+    "/api/analytics/overview",
+    response_model=AnalyticsOverviewResponse,
+    summary="Comprehensive analytics including balance distributions, debtor rankings, and 14-day trends"
+)
+def get_analytics_overview(
+    days: int = Query(30, ge=7, le=90),
+    current_user: User = Depends(require_current_user),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+    now_ist = get_current_ist_time()
+    start_dt = now_ist - timedelta(days=days)
+
+    all_txs = db.query(Transaction).filter(Transaction.user_id == shop_id).all()
+
+    # Lifetime / Customer Balances
+    cust_groups: Dict[str, List[Transaction]] = {}
+    for t in all_txs:
+        cust_groups.setdefault(t.customer_name, []).append(t)
+
+    bucket_0 = {"count": 0, "debt": 0.0}
+    bucket_500 = {"count": 0, "debt": 0.0}
+    bucket_2000 = {"count": 0, "debt": 0.0}
+    bucket_5000 = {"count": 0, "debt": 0.0}
+    bucket_high = {"count": 0, "debt": 0.0}
+
+    debtors: List[dict] = []
+
+    for cname, records in cust_groups.items():
+        u = sum(r.amount for r in records if r.transaction_type == TransactionType.UDHAAR)
+        j = sum(r.amount for r in records if r.transaction_type == TransactionType.JAMA)
+        bal = round(u - j, 2)
+
+        if bal <= 0:
+            bucket_0["count"] += 1
+        elif bal <= 500:
+            bucket_500["count"] += 1
+            bucket_500["debt"] += bal
+        elif bal <= 2000:
+            bucket_2000["count"] += 1
+            bucket_2000["debt"] += bal
+        elif bal <= 5000:
+            bucket_5000["count"] += 1
+            bucket_5000["debt"] += bal
+        else:
+            bucket_high["count"] += 1
+            bucket_high["debt"] += bal
+
+        if bal > 0:
+            last_dt = max(r.timestamp for r in records).strftime("%Y-%m-%d")
+            debtors.append({"customer_name": cname, "balance": bal, "last_date": last_dt})
+
+    debtors.sort(key=lambda x: x["balance"], reverse=True)
+    top_5_debtors = debtors[:5]
+
+    distribution = [
+        CustomerDistributionBucket(bucket_label="Cleared (Rs. 0)", customer_count=bucket_0["count"], total_debt=0.0),
+        CustomerDistributionBucket(bucket_label="Small (Rs. 1 - 500)", customer_count=bucket_500["count"], total_debt=round(bucket_500["debt"], 2)),
+        CustomerDistributionBucket(bucket_label="Medium (Rs. 501 - 2,000)", customer_count=bucket_2000["count"], total_debt=round(bucket_2000["debt"], 2)),
+        CustomerDistributionBucket(bucket_label="Significant (Rs. 2,001 - 5,000)", customer_count=bucket_5000["count"], total_debt=round(bucket_5000["debt"], 2)),
+        CustomerDistributionBucket(bucket_label="High Value (Rs. 5,000+)", customer_count=bucket_high["count"], total_debt=round(bucket_high["debt"], 2))
+    ]
+
+    # Period metrics (last N days)
+    period_txs = [t for t in all_txs if t.timestamp >= start_dt]
+    p_u = sum(t.amount for t in period_txs if t.transaction_type == TransactionType.UDHAAR)
+    p_j = sum(t.amount for t in period_txs if t.transaction_type == TransactionType.JAMA)
+    net_f = round(p_j - p_u, 2)
+
+    # 14-day daily trend
+    daily_trend: List[dict] = []
+    for d in range(13, -1, -1):
+        day_date = (now_ist - timedelta(days=d)).date()
+        day_txs = [t for t in all_txs if t.timestamp.date() == day_date]
+        d_u = sum(t.amount for t in day_txs if t.transaction_type == TransactionType.UDHAAR)
+        d_j = sum(t.amount for t in day_txs if t.transaction_type == TransactionType.JAMA)
+        daily_trend.append({
+            "date": day_date.strftime("%d %b"),
+            "udhaar": round(d_u, 2),
+            "jama": round(d_j, 2)
+        })
+
+    return AnalyticsOverviewResponse(
+        period_start=start_dt.strftime("%Y-%m-%d"),
+        period_end=now_ist.strftime("%Y-%m-%d"),
+        total_udhaar=round(p_u, 2),
+        total_jama=round(p_j, 2),
+        net_flow=net_f,
+        total_active_customers=len(cust_groups),
+        customer_distribution=distribution,
+        top_debtors=top_5_debtors,
+        daily_trend=daily_trend
+    )
+
+
+# ==========================================
+# Shop Profile & Settings Endpoints
+# ==========================================
+
+@app.get(
+    "/api/shop/profile",
+    response_model=ShopProfileResponse,
+    summary="Get shop and owner profile configuration"
+)
+def get_shop_profile(
+    current_user: User = Depends(require_current_user),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+    owner = db.query(User).filter(User.id == shop_id).first() or current_user
+
+    return ShopProfileResponse(
+        id=owner.id,
+        username=owner.username,
+        shop_name=owner.shop_name or "My Store",
+        owner_name=owner.owner_name or owner.username,
+        email=owner.email,
+        phone=getattr(owner, "phone", None),
+        address=getattr(owner, "address", None),
+        currency=getattr(owner, "currency", "INR") or "INR",
+        timezone=getattr(owner, "timezone", "Asia/Kolkata") or "Asia/Kolkata",
+        role=current_user.role,
+        interest_enabled=bool(getattr(owner, "interest_enabled", 1)),
+        interest_rate_percent=float(getattr(owner, "interest_rate_percent", 2.0) or 2.0),
+        interest_grace_days=int(getattr(owner, "interest_grace_days", 15) or 15)
+    )
+
+
+@app.put(
+    "/api/shop/profile",
+    response_model=ShopProfileResponse,
+    summary="Update shop and owner profile configuration (Owner/Manager)"
+)
+def update_shop_profile(
+    payload: ShopProfileUpdateRequest,
+    current_user: User = Depends(check_role(["OWNER", "MANAGER"])),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+    owner = db.query(User).filter(User.id == shop_id).first()
+    if not owner:
+        raise HTTPException(status_code=404, detail="Shop owner record not found.")
+
+    if payload.shop_name is not None:
+        owner.shop_name = payload.shop_name.strip()
+    if payload.owner_name is not None:
+        owner.owner_name = payload.owner_name.strip()
+    if payload.email is not None:
+        clean_email = payload.email.strip().lower() if payload.email.strip() else None
+        if clean_email:
+            if not is_valid_email(clean_email):
+                raise HTTPException(status_code=400, detail=f"Invalid email format: '{clean_email}'")
+            existing = db.query(User).filter(User.email == clean_email, User.id != owner.id).first()
+            if existing:
+                raise HTTPException(status_code=400, detail=f"Email '{clean_email}' is already in use.")
+        owner.email = clean_email
+    if payload.phone is not None:
+        owner.phone = payload.phone.strip() if payload.phone.strip() else None
+    if payload.address is not None:
+        owner.address = payload.address.strip() if payload.address.strip() else None
+    if payload.currency is not None:
+        owner.currency = payload.currency.strip()
+    if payload.timezone is not None:
+        owner.timezone = payload.timezone.strip()
+    if payload.interest_enabled is not None:
+        owner.interest_enabled = 1 if payload.interest_enabled else 0
+    if payload.interest_rate_percent is not None:
+        owner.interest_rate_percent = max(0.0, float(payload.interest_rate_percent))
+    if payload.interest_grace_days is not None:
+        owner.interest_grace_days = max(0, int(payload.interest_grace_days))
+
+    db.commit()
+    db.refresh(owner)
+
+    log_audit_event(
+        db, shop_id, current_user, "SHOP_PROFILE_UPDATED",
+        resource_type="shop", resource_id=str(owner.id),
+        details={"shop_name": owner.shop_name, "owner_name": owner.owner_name}
+    )
+
+    return ShopProfileResponse(
+        id=owner.id,
+        username=owner.username,
+        shop_name=owner.shop_name,
+        owner_name=owner.owner_name,
+        email=owner.email,
+        phone=owner.phone,
+        address=owner.address,
+        currency=owner.currency or "INR",
+        timezone=owner.timezone or "Asia/Kolkata",
+        role=current_user.role,
+        interest_enabled=bool(owner.interest_enabled),
+        interest_rate_percent=float(owner.interest_rate_percent or 2.0),
+        interest_grace_days=int(owner.interest_grace_days or 15)
+    )
+
+
+# ==========================================
+# Overdue Interest Engine Endpoints
+# ==========================================
+
+@app.get(
+    "/api/interest/overview",
+    response_model=InterestOverviewResponse,
+    summary="Get shop-wide overdue interest calculation and per-customer breakdowns"
+)
+def get_interest_overview(
+    current_user: User = Depends(require_current_user),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+    owner = db.query(User).filter(User.id == shop_id).first() or current_user
+    interest_enabled = bool(getattr(owner, "interest_enabled", 1))
+    rate_percent = float(getattr(owner, "interest_rate_percent", 2.0) or 2.0)
+    grace_days = int(getattr(owner, "interest_grace_days", 15) or 15)
+
+    txs = db.query(Transaction).filter(Transaction.user_id == shop_id).order_by(Transaction.timestamp.asc()).all()
+    cust_groups: Dict[str, List[Transaction]] = {}
+    for t in txs:
+        cust_groups.setdefault(t.customer_name, []).append(t)
+
+    breakdowns: List[CustomerInterestBreakdown] = []
+    total_principal = 0.0
+    total_interest = 0.0
+    overdue_count = 0
+
+    for cname, records in cust_groups.items():
+        interest_res = calculate_customer_interest(
+            records,
+            rate_percent=rate_percent if interest_enabled else 0.0,
+            grace_days=grace_days
+        )
+        if interest_res["principal_balance"] > 0:
+            total_principal += interest_res["principal_balance"]
+            total_interest += interest_res["accrued_interest"]
+            if interest_res["is_overdue"]:
+                overdue_count += 1
+
+            phone = next((r.customer_phone for r in records if r.customer_phone), None)
+            breakdowns.append(
+                CustomerInterestBreakdown(
+                    customer_name=cname,
+                    phone=phone,
+                    email=None,
+                    principal_balance=interest_res["principal_balance"],
+                    total_balance=interest_res["total_balance"],
+                    accrued_interest=interest_res["accrued_interest"],
+                    overdue_days=interest_res["overdue_days"],
+                    grace_days=grace_days,
+                    overdue_periods=interest_res["overdue_periods"],
+                    rate_percent=rate_percent,
+                    is_overdue=interest_res["is_overdue"],
+                    oldest_unsettled_date=interest_res["oldest_unsettled_date"]
+                )
+            )
+
+    breakdowns.sort(key=lambda x: (x.accrued_interest, x.principal_balance), reverse=True)
+
+    return InterestOverviewResponse(
+        interest_enabled=interest_enabled,
+        default_rate_percent=rate_percent,
+        grace_period_days=grace_days,
+        total_principal_outstanding=round(total_principal, 2),
+        total_interest_accrued=round(total_interest, 2),
+        total_combined_due=round(total_principal + total_interest, 2),
+        overdue_customers_count=overdue_count,
+        breakdowns=breakdowns
+    )
+
+
+# ==========================================
+# Customer Email Reminders (Brevo SMTP)
+# ==========================================
+
+@app.post(
+    "/api/reminders/email/preview",
+    response_model=EmailReminderPreviewResponse,
+    summary="Generate a preview of an email reminder for a customer"
+)
+def preview_email_reminder(
+    payload: EmailReminderPreviewRequest,
+    current_user: User = Depends(require_current_user),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+    owner = db.query(User).filter(User.id == shop_id).first() or current_user
+    cname = payload.customer_name.strip()
+
+    records = (
+        db.query(Transaction)
+        .filter(
+            Transaction.user_id == shop_id,
+            func.lower(Transaction.customer_name) == cname.lower()
+        )
+        .order_by(Transaction.timestamp.asc())
+        .all()
+    )
+    if not records:
+        raise HTTPException(status_code=404, detail=f"No ledger records found for customer '{cname}'.")
+
+    rate_percent = float(getattr(owner, "interest_rate_percent", 2.0) or 2.0)
+    grace_days = int(getattr(owner, "interest_grace_days", 15) or 15)
+    interest_res = calculate_customer_interest(records, rate_percent=rate_percent, grace_days=grace_days)
+
+    if interest_res["principal_balance"] <= 0:
+        raise HTTPException(status_code=400, detail=f"Customer '{cname}' has no outstanding dues.")
+
+    content = generate_reminder_email_content(
+        customer_name=cname,
+        principal_balance=interest_res["principal_balance"],
+        accrued_interest=interest_res["accrued_interest"],
+        total_balance=interest_res["total_balance"],
+        overdue_days=interest_res["overdue_days"],
+        shop_name=owner.shop_name or "HisabAI Store",
+        owner_name=owner.owner_name or owner.username,
+        shop_phone=getattr(owner, "phone", None)
+    )
+
+    return EmailReminderPreviewResponse(
+        customer_name=cname,
+        customer_email=payload.customer_email,
+        subject=content["subject"],
+        html_content=content["html"],
+        text_content=content["text"],
+        balance=interest_res["total_balance"],
+        principal_balance=interest_res["principal_balance"],
+        accrued_interest=interest_res["accrued_interest"],
+        overdue_days=interest_res["overdue_days"],
+        shop_name=owner.shop_name or "HisabAI Store",
+        owner_name=owner.owner_name or owner.username
+    )
+
+
+@app.post(
+    "/api/reminders/email/send",
+    response_model=EmailReminderSendResponse,
+    summary="Dispatch a payment reminder to customer email using Brevo SMTP"
+)
+def send_email_reminder(
+    payload: EmailReminderSendRequest,
+    current_user: User = Depends(require_current_user),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+    owner = db.query(User).filter(User.id == shop_id).first() or current_user
+    cname = payload.customer_name.strip()
+    recipient_email = payload.customer_email.strip().lower()
+
+    if not is_valid_email(recipient_email):
+        raise HTTPException(status_code=400, detail=f"Invalid recipient email: '{recipient_email}'")
+
+    records = (
+        db.query(Transaction)
+        .filter(
+            Transaction.user_id == shop_id,
+            func.lower(Transaction.customer_name) == cname.lower()
+        )
+        .order_by(Transaction.timestamp.asc())
+        .all()
+    )
+    if not records:
+        raise HTTPException(status_code=404, detail=f"No ledger records found for customer '{cname}'.")
+
+    rate_percent = float(getattr(owner, "interest_rate_percent", 2.0) or 2.0)
+    grace_days = int(getattr(owner, "interest_grace_days", 15) or 15)
+    interest_res = calculate_customer_interest(records, rate_percent=rate_percent, grace_days=grace_days)
+
+    if interest_res["principal_balance"] <= 0:
+        raise HTTPException(status_code=400, detail=f"Customer '{cname}' has no outstanding balance.")
+
+    content = generate_reminder_email_content(
+        customer_name=cname,
+        principal_balance=interest_res["principal_balance"],
+        accrued_interest=interest_res["accrued_interest"],
+        total_balance=interest_res["total_balance"],
+        overdue_days=interest_res["overdue_days"],
+        shop_name=owner.shop_name or "HisabAI Store",
+        owner_name=owner.owner_name or owner.username,
+        shop_phone=getattr(owner, "phone", None),
+        custom_message=payload.custom_message
+    )
+
+    subject = payload.subject or content["subject"]
+    success, status_msg = send_brevo_email(
+        to_email=recipient_email,
+        subject=subject,
+        html_content=content["html"],
+        text_content=content["text"],
+        sender_email=getattr(owner, "email", None),
+        sender_name=owner.shop_name or "HisabAI"
+    )
+
+    now_ist = get_current_ist_time()
+    delivery_status = "SENT" if success else "FAILED"
+
+    reminder_rec = PaymentReminder(
+        shop_id=shop_id,
+        user_id=current_user.id,
+        customer_name=cname,
+        customer_phone=next((r.customer_phone for r in records if r.customer_phone), None),
+        customer_email=recipient_email,
+        balance_snapshot_paise=interest_res["principal_paise"],
+        overdue_days=interest_res["overdue_days"],
+        message_text=subject,
+        delivery_method="EMAIL",
+        delivery_status=delivery_status,
+        delivery_details=status_msg,
+        created_at=now_ist
+    )
+    db.add(reminder_rec)
+    db.commit()
+    db.refresh(reminder_rec)
+
+    log_audit_event(
+        db, shop_id, current_user,
+        "EMAIL_REMINDER_SENT" if success else "EMAIL_REMINDER_FAILED",
+        resource_type="payment_reminder", resource_id=str(reminder_rec.id),
+        details={
+            "customer": cname,
+            "email": recipient_email,
+            "status": delivery_status,
+            "status_details": status_msg,
+            "total_balance": interest_res["total_balance"]
+        }
+    )
+
+    return EmailReminderSendResponse(
+        status="ACCEPTED" if success else "FAILED",
+        message=status_msg,
+        recipient=recipient_email,
+        reminder_id=reminder_rec.id,
+        timestamp=now_ist.strftime("%Y-%m-%d %H:%M:%S IST")
+    )
+
+
+# ==========================================
+# Reliability & SQLite Physical Snapshots
+# ==========================================
+
+@app.get(
+    "/api/system/reliability",
+    summary="Get database integrity, journal mode, storage stats, and physical snapshot history"
+)
+def get_system_reliability(
+    current_user: User = Depends(require_current_user),
+    db: Session = Depends(get_db)
+):
+    db_file = PROJECT_ROOT / "hisab_ai.db"
+    size_bytes = db_file.stat().st_size if db_file.exists() else 0
+
+    try:
+        integrity_row = db.execute(text("PRAGMA integrity_check")).fetchone()
+        integrity_status = integrity_row[0] if integrity_row else "unknown"
+    except Exception as exc:
+        integrity_status = f"Error: {exc}"
+
+    try:
+        journal_row = db.execute(text("PRAGMA journal_mode")).fetchone()
+        journal_mode = journal_row[0] if journal_row else "unknown"
+    except Exception:
+        journal_mode = "unknown"
+
+    backup_dir = PROJECT_ROOT / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    snapshots = []
+    for f in sorted(backup_dir.glob("*.db"), key=lambda p: p.stat().st_mtime, reverse=True):
+        snapshots.append({
+            "filename": f.name,
+            "size_kb": round(f.stat().st_size / 1024, 2),
+            "created_at": datetime.fromtimestamp(f.stat().st_mtime, KOLKATA_TZ).strftime("%Y-%m-%d %H:%M:%S IST")
+        })
+
+    return {
+        "database_file": str(db_file.name),
+        "database_size_bytes": size_bytes,
+        "database_size_kb": round(size_bytes / 1024, 2),
+        "integrity_check": integrity_status,
+        "journal_mode": str(journal_mode).upper(),
+        "snapshots_count": len(snapshots),
+        "snapshots": snapshots,
+        "reliability_explanation": (
+            "HisabAI uses SQLite with ACID transactions, atomic integer-paise calculations, "
+            "and on-demand physical snapshot backups. Your financial ledger data is never lost, "
+            "and cannot drift due to floating-point rounding."
+        )
+    }
+
+
+@app.post(
+    "/api/backup/create-snapshot",
+    summary="Create an immediate physical SQLite database snapshot in backups/ (Owner only)"
+)
+def create_database_snapshot(
+    current_user: User = Depends(check_role(["OWNER"])),
+    db: Session = Depends(get_db)
+):
+    shop_id = get_effective_shop_id(current_user)
+    db_file = PROJECT_ROOT / "hisab_ai.db"
+    if not db_file.exists():
+        raise HTTPException(status_code=404, detail="Primary database file not found.")
+
+    backup_dir = PROJECT_ROOT / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp_str = get_current_ist_time().strftime("%Y%m%d_%H%M%S")
+    snapshot_filename = f"hisab_ai_snapshot_{timestamp_str}.db"
+    dest_path = backup_dir / snapshot_filename
+
+    try:
+        shutil.copy2(db_file, dest_path)
+        size_bytes = dest_path.stat().st_size
+        log_audit_event(
+            db, shop_id, current_user, "DATABASE_SNAPSHOT_CREATED",
+            resource_type="backup", resource_id=snapshot_filename,
+            details={"size_bytes": size_bytes}
+        )
+        return {
+            "success": True,
+            "message": f"Physical database snapshot created successfully: {snapshot_filename}",
+            "filename": snapshot_filename,
+            "size_kb": round(size_bytes / 1024, 2),
+            "timestamp": get_current_ist_time().strftime("%Y-%m-%d %H:%M:%S IST")
+        }
+    except Exception as exc:
+        logger.error(f"Failed to create snapshot: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Snapshot creation failed: {str(exc)}")

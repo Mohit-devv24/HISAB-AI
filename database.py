@@ -57,8 +57,12 @@ def init_db(target_engine=None):
                     )
             if existing_columns and "user_id" not in existing_columns:
                 conn.execute(text("ALTER TABLE transactions ADD COLUMN user_id INTEGER"))
+            if existing_columns and "customer_phone" not in existing_columns:
+                conn.execute(text("ALTER TABLE transactions ADD COLUMN customer_phone VARCHAR(20)"))
+            if existing_columns and "notes" not in existing_columns:
+                conn.execute(text("ALTER TABLE transactions ADD COLUMN notes VARCHAR(255)"))
 
-            # 2. Users table migration for Google OAuth & Owner Profile
+            # 2. Users table migration for Google OAuth, Owner Profile & Roles & Settings
             user_result = conn.execute(text("PRAGMA table_info(users)")).fetchall()
             existing_user_cols = [row[1] for row in user_result]
             if existing_user_cols and "owner_name" not in existing_user_cols:
@@ -67,6 +71,36 @@ def init_db(target_engine=None):
                 conn.execute(text("ALTER TABLE users ADD COLUMN email VARCHAR(120)"))
             if existing_user_cols and "google_id" not in existing_user_cols:
                 conn.execute(text("ALTER TABLE users ADD COLUMN google_id VARCHAR(120)"))
+            if existing_user_cols and "role" not in existing_user_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN role VARCHAR(20) DEFAULT 'OWNER'"))
+            if existing_user_cols and "shop_id" not in existing_user_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN shop_id INTEGER"))
+            if existing_user_cols and "phone" not in existing_user_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN phone VARCHAR(20)"))
+            if existing_user_cols and "address" not in existing_user_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN address VARCHAR(255)"))
+            if existing_user_cols and "currency" not in existing_user_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN currency VARCHAR(10) DEFAULT 'INR'"))
+            if existing_user_cols and "timezone" not in existing_user_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN timezone VARCHAR(40) DEFAULT 'Asia/Kolkata'"))
+            if existing_user_cols and "interest_enabled" not in existing_user_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN interest_enabled INTEGER DEFAULT 1"))
+            if existing_user_cols and "interest_rate_percent" not in existing_user_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN interest_rate_percent FLOAT DEFAULT 2.0"))
+            if existing_user_cols and "interest_grace_days" not in existing_user_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN interest_grace_days INTEGER DEFAULT 15"))
+
+            # 3. Payment Reminders table migration
+            reminder_result = conn.execute(text("PRAGMA table_info(payment_reminders)")).fetchall()
+            existing_reminder_cols = [row[1] for row in reminder_result]
+            if existing_reminder_cols and "customer_email" not in existing_reminder_cols:
+                conn.execute(text("ALTER TABLE payment_reminders ADD COLUMN customer_email VARCHAR(120)"))
+            if existing_reminder_cols and "due_date" not in existing_reminder_cols:
+                conn.execute(text("ALTER TABLE payment_reminders ADD COLUMN due_date TIMESTAMP"))
+            if existing_reminder_cols and "overdue_days" not in existing_reminder_cols:
+                conn.execute(text("ALTER TABLE payment_reminders ADD COLUMN overdue_days INTEGER DEFAULT 0"))
+            if existing_reminder_cols and "delivery_details" not in existing_reminder_cols:
+                conn.execute(text("ALTER TABLE payment_reminders ADD COLUMN delivery_details VARCHAR(500)"))
 
             conn.commit()
         except Exception:

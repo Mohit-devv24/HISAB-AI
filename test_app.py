@@ -1118,7 +1118,7 @@ class TestHisabAIFullSuite(unittest.TestCase):
         self.assertEqual(len(ledger_res.json()["transactions"]), 0)
 
     def test_verified_backup_and_database_reset(self):
-        """Verifies that verified SQLite backup exists and live SQLite DB has zero legacy records."""
+        """Verifies that verified SQLite backup exists and live SQLite DB has no unowned legacy demo records."""
         backup_dir = "backups"
         self.assertTrue(os.path.isdir(backup_dir), "backups/ directory should exist")
         backup_files = [f for f in os.listdir(backup_dir) if f.startswith("hisab_ai_db_backup_") and f.endswith(".db")]
@@ -1130,16 +1130,109 @@ class TestHisabAIFullSuite(unittest.TestCase):
             conn = sqlite3.connect(live_db_path)
             cursor = conn.cursor()
 
-            # Zero legacy transactions
-            cursor.execute("SELECT COUNT(*) FROM transactions;")
-            tx_count = cursor.fetchone()[0]
-            self.assertEqual(tx_count, 0, "Live database transactions table should have 0 legacy transactions")
+            # Zero unowned legacy transactions
+            cursor.execute("SELECT COUNT(*) FROM transactions WHERE user_id IS NULL;")
+            unowned_tx_count = cursor.fetchone()[0]
+            self.assertEqual(unowned_tx_count, 0, "Live database transactions table should have 0 unowned legacy transactions")
 
             # Default demo user 'shopkeeper' must not exist
             cursor.execute("SELECT COUNT(*) FROM users WHERE username = 'shopkeeper';")
             shopkeeper_count = cursor.fetchone()[0]
             self.assertEqual(shopkeeper_count, 0, "Demo user 'shopkeeper' must be permanently removed")
             conn.close()
+
+    # 13. Voice Assistant Natural Language Matching & Contextual Clarification Tests
+    def test_voice_english_daily_collection_query(self):
+        """Verifies English voice query: 'Show me today's total collection'."""
+        db = TestingSession()
+        now_ist = get_current_ist_time()
+        db.add_all([
+            Transaction(customer_name="Raju", amount_paise=50000, transaction_type=TransactionType.JAMA, timestamp=now_ist),
+            Transaction(customer_name="Anita", amount_paise=25000, transaction_type=TransactionType.JAMA, timestamp=now_ist),
+            Transaction(customer_name="Sunil", amount_paise=100000, transaction_type=TransactionType.UDHAAR, timestamp=now_ist)
+        ])
+        db.commit()
+        db.close()
+
+        req = {"text": "Show me today's total collection"}
+        resp = client.post("/api/voice-assistant", json=req)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["action_taken"], "daily_summary")
+        self.assertIn("total collection is ₹750.00", data["reply_message"])
+
+    def test_voice_english_customer_balance_query(self):
+        """Verifies English voice query: 'What is Sharma's balance?'."""
+        db = TestingSession()
+        now_ist = get_current_ist_time()
+        db.add(Transaction(customer_name="Sharma", amount_paise=120000, transaction_type=TransactionType.UDHAAR, timestamp=now_ist))
+        db.commit()
+        db.close()
+
+        req = {"text": "What is Sharma's balance?"}
+        resp = client.post("/api/voice-assistant", json=req)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["action_taken"], "customer_balance")
+        self.assertIn("Sharma owes ₹1,200.00", data["reply_message"])
+
+    def test_voice_clarification_missing_customer_name(self):
+        """Verifies intelligent contextual clarification when customer name is missing: '500 udhaar likh do'."""
+        req = {"text": "500 udhaar likh do"}
+        resp = client.post("/api/voice-assistant", json=req)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["action_taken"], "clarification")
+        self.assertIn("Kaunse customer ke naam par likhna hai?", data["reply_message"])
+        self.assertFalse(data["requires_confirmation"])
+
+    def test_voice_clarification_missing_amount(self):
+        """Verifies intelligent contextual clarification when amount is missing: 'Sharma ji ka udhaar likh do'."""
+        req = {"text": "Sharma ji ka udhaar likh do"}
+        resp = client.post("/api/voice-assistant", json=req)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["action_taken"], "clarification")
+        self.assertIn("Kitne rupaye likhne hain?", data["reply_message"])
+        self.assertFalse(data["requires_confirmation"])
+
+    def test_voice_clarification_ambiguous_direction(self):
+        """Verifies intelligent contextual clarification when direction is ambiguous: 'Sharma ji ke 500 likh do'."""
+        req = {"text": "Sharma ji ke 500 likh do"}
+        resp = client.post("/api/voice-assistant", json=req)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["action_taken"], "clarification")
+        self.assertIn("Aap udhaar likhwana chahte hain ya jama entry karwani hai?", data["reply_message"])
+        self.assertFalse(data["requires_confirmation"])
+
+    def test_voice_english_entry_and_confirmation(self):
+        """Verifies English entry flow: 'record 500 credit for Ramesh' and 'yes' confirmation."""
+        # 1. Prepare
+        req1 = {"text": "record 500 credit for Ramesh", "session_id": "eng_test_session"}
+        resp1 = client.post("/api/voice-assistant", json=req1)
+        self.assertEqual(resp1.status_code, 200)
+        data1 = resp1.json()
+        self.assertEqual(data1["action_taken"], "prepared_entry")
+        self.assertTrue(data1["requires_confirmation"])
+        self.assertIn("Record ₹500.00 credit for Ramesh?", data1["reply_message"])
+        pending_id = data1["pending_operation"]["operation_id"]
+
+        # 2. Confirm in English
+        req2 = {"text": "yes", "session_id": "eng_test_session", "pending_operation_id": pending_id}
+        resp2 = client.post("/api/voice-assistant", json=req2)
+        self.assertEqual(resp2.status_code, 200)
+        data2 = resp2.json()
+        self.assertEqual(data2["action_taken"], "committed_transaction")
+        self.assertIn("Recorded ₹500.00 credit for Ramesh successfully", data2["reply_message"])
+
+        # 3. Verify in DB
+        db = TestingSession()
+        tx = db.query(Transaction).filter_by(customer_name="Ramesh").first()
+        self.assertIsNotNone(tx)
+        self.assertEqual(tx.amount_paise, 50000)
+        self.assertEqual(tx.transaction_type, TransactionType.UDHAAR)
+        db.close()
 
 
 if __name__ == "__main__":
