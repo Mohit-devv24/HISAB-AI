@@ -1,4 +1,4 @@
-# 📖 Hisab AI — AI Powered Digital Khata ("Suno Hisab")
+# 📖 Hisab AI — AI Powered Digital Khata (Suno Hisab)
 
 > **Production-Ready, Hackathon-Demo-Ready AI Digital Ledger** designed specifically for millions of local Indian shopkeepers (*kirana store owners, merchants, and small businesses*). 
 > Activate hands-free by saying **"Suno Hisab"**, speak natural Hindi/Hinglish commands, query customer balances and daily summaries, review financial transactions before committing, and hear spoken responses with zero acoustic feedback.
