@@ -364,12 +364,13 @@
       height: 610px;
       border-radius: 28px;
       overflow: visible;
-      background: radial-gradient(circle at 18% 22%, #4a3421 0%, #2b1f14 30%, #152720 70%, #1d433b 100%);
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.14);
+      background: radial-gradient(circle at 48% 34%, #52341b 0%, #2f1e12 28%, #14251e 65%, #0d1a14 100%);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.22);
       display: flex;
       flex-direction: column;
       justify-content: flex-end;
-      padding: 36px 32px;
+      align-items: center;
+      padding: 28px 24px 28px 24px;
       box-sizing: border-box;
     }
 
@@ -416,22 +417,149 @@
       right: 170px;
     }
 
+    /* HisabAI Showcase Logo Brand with Interactive Shine & Touch */
+    .auth-showcase-brand {
+      position: relative;
+      z-index: 5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      margin: auto 0 20px 0;
+      padding-top: 6px;
+      perspective: 900px;
+    }
+
+    .logo-interactive-card {
+      position: relative;
+      width: 100%;
+      max-width: 320px;
+      height: 280px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transform-style: preserve-3d;
+      transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.3, 1), filter 0.25s ease;
+      border-radius: 20px;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* Ambient Breathing Warm Halo Glow */
+    .logo-ambient-halo {
+      position: absolute;
+      width: 250px;
+      height: 250px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(245, 158, 11, 0.26) 0%, rgba(217, 119, 6, 0.1) 45%, transparent 70%);
+      filter: blur(14px);
+      pointer-events: none;
+      z-index: 1;
+      animation: logoHaloPulse 4s ease-in-out infinite alternate;
+    }
+
+    @keyframes logoHaloPulse {
+      0% { transform: scale(0.92); opacity: 0.5; }
+      100% { transform: scale(1.1); opacity: 0.85; }
+    }
+
+    .auth-showcase-logo-img {
+      position: relative;
+      z-index: 2;
+      width: 100%;
+      max-width: 300px;
+      height: auto;
+      display: block;
+      filter: drop-shadow(0 14px 28px rgba(0, 0, 0, 0.45));
+      pointer-events: none;
+      user-select: none;
+      transition: transform 0.2s ease, filter 0.2s ease;
+    }
+
+    /* Shining Sheen Light Sweep */
+    .logo-shine-sheen {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      border-radius: 20px;
+      pointer-events: none;
+      z-index: 3;
+      overflow: hidden;
+      mask-image: -webkit-radial-gradient(white, black);
+    }
+
+    .logo-shine-sheen::after {
+      content: '';
+      position: absolute;
+      top: -30%;
+      left: -100%;
+      width: 60%;
+      height: 160%;
+      background: linear-gradient(
+        105deg,
+        transparent 20%,
+        rgba(255, 255, 255, 0.03) 35%,
+        rgba(255, 235, 180, 0.24) 50%,
+        rgba(255, 255, 255, 0.06) 65%,
+        transparent 80%
+      );
+      transform: rotate(25deg);
+      animation: logoShineSweep 5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    }
+
+    @keyframes logoShineSweep {
+      0%, 30% { left: -100%; opacity: 0; }
+      35% { opacity: 0.9; }
+      65% { left: 160%; opacity: 0.9; }
+      70%, 100% { left: 160%; opacity: 0; }
+    }
+
+    /* Touching Interactive Cursor Spotlight */
+    .logo-touch-spotlight {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      border-radius: 20px;
+      pointer-events: none;
+      z-index: 4;
+      opacity: 0;
+      background: radial-gradient(circle 120px at var(--touch-x, 50%) var(--touch-y, 50%), rgba(255, 235, 190, 0.26), rgba(245, 158, 11, 0.08) 40%, transparent 80%);
+      mix-blend-mode: screen;
+      transition: opacity 0.3s ease;
+    }
+
+    .logo-interactive-card:hover .logo-touch-spotlight,
+    .logo-interactive-card:active .logo-touch-spotlight {
+      opacity: 1;
+    }
+
+    .logo-interactive-card:active .auth-showcase-logo-img {
+      transform: scale(0.96);
+    }
+
     /* Testimonial / Features Card */
     .auth-testimonial-card {
       position: relative;
       z-index: 5;
-      background: rgba(22, 36, 30, 0.84);
+      width: 100%;
+      background: rgba(18, 32, 26, 0.78);
       backdrop-filter: blur(20px);
       -webkit-backdrop-filter: blur(20px);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 18px;
-      padding: 22px 24px;
-      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      border-radius: 20px;
+      padding: 22px 22px 24px 22px;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.4);
+      box-sizing: border-box;
     }
 
     .auth-showcase-tags {
       display: flex;
-      gap: 8px;
+      gap: 10px;
       margin-bottom: 14px;
     }
 
@@ -439,23 +567,26 @@
       font-size: 0.72rem;
       font-weight: 600;
       color: #e4e4e7;
-      background: rgba(255, 255, 255, 0.1);
-      padding: 4px 10px;
-      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      padding: 5px 12px;
+      border-radius: 8px;
       letter-spacing: 0.2px;
     }
 
     .auth-testimonial-quote {
-      font-size: 0.95rem;
-      line-height: 1.5;
+      font-size: 0.94rem;
+      line-height: 1.55;
       color: #f4f4f5;
-      font-weight: 500;
-      margin-bottom: 16px;
+      font-weight: 450;
+      margin: 0;
+      letter-spacing: -0.1px;
     }
 
     .auth-testimonial-author {
       font-size: 0.85rem;
       color: #a1a1aa;
+      margin-top: 12px;
     }
 
     .auth-testimonial-author strong {
@@ -3169,6 +3300,16 @@
           <div class="showcase-shape-card showcase-shape-3"></div>
         </div>
 
+        <!-- HisabAI 3D Showcase Logo Brand with Interactive Shine & Touch Effect -->
+        <div class="auth-showcase-brand" id="authShowcaseLogoContainer">
+          <div class="logo-interactive-card" id="logoInteractiveCard" title="HisabAI Intelligent Khata">
+            <div class="logo-ambient-halo"></div>
+            <img src="/static/images/hisabai_logo_showcase.png" alt="HisabAI - Intelligent Khata Ledger" class="auth-showcase-logo-img" id="authShowcaseLogoImg" />
+            <div class="logo-shine-sheen"></div>
+            <div class="logo-touch-spotlight" id="logoTouchSpotlight"></div>
+          </div>
+        </div>
+
         <!-- Floating Glassmorphic Testimonial Card -->
         <div class="auth-testimonial-card">
           <div class="auth-showcase-tags">
@@ -3178,9 +3319,6 @@
           <p class="auth-testimonial-quote">
             "HisabAI has completely transformed our daily shop ledger. What used to take hours of manual notebook calculation every night is now instantly automated with voice."
           </p>
-          <div class="auth-testimonial-author">
-            Ramesh Goyal &nbsp;•&nbsp; Owner, <strong>Goyal General Store</strong>
-          </div>
         </div>
       </div>
 
@@ -4965,6 +5103,7 @@
       initGoogleAuth();
       initVoiceElectricAnimation();
       initElectricBorders();
+      initLogoShineAndTouch();
       initSpecularButtons();
       initBorderGlowCards();
 
@@ -5191,6 +5330,7 @@
       document.getElementById('appLayout').classList.remove('active');
       setTimeout(initBorderGlowCards, 50);
       setTimeout(initElectricBorders, 80);
+      setTimeout(initLogoShineAndTouch, 80);
     }
 
     function onAuthenticationSuccess(user) {
@@ -8470,6 +8610,70 @@ void main() {
 
     function initElectricBorders() {
       ElectricBorder.initAll();
+    }
+
+    function initLogoShineAndTouch() {
+      const card = document.getElementById('logoInteractiveCard');
+      if (!card || card.dataset.touchInit === 'true') return;
+      card.dataset.touchInit = 'true';
+
+      const spotlight = document.getElementById('logoTouchSpotlight');
+      let bounds = null;
+      let isHovered = false;
+
+      function updateBounds() {
+        bounds = card.getBoundingClientRect();
+      }
+
+      function onPointerMove(e) {
+        if (!bounds) updateBounds();
+        const x = e.clientX - bounds.left;
+        const y = e.clientY - bounds.top;
+
+        // Normalized coords from -1 to 1
+        const px = (x / bounds.width) * 2 - 1;
+        const py = (y / bounds.height) * 2 - 1;
+
+        // 3D rotation angles (smooth subtle tilt max 12deg)
+        const rotX = -py * 12;
+        const rotY = px * 12;
+
+        card.style.transform = `perspective(800px) rotateX(${rotX.toFixed(2)}deg) rotateY(${rotY.toFixed(2)}deg) scale3d(1.03, 1.03, 1.03)`;
+
+        if (spotlight) {
+          spotlight.style.setProperty('--touch-x', `${x.toFixed(1)}px`);
+          spotlight.style.setProperty('--touch-y', `${y.toFixed(1)}px`);
+        }
+      }
+
+      function onPointerEnter() {
+        isHovered = true;
+        updateBounds();
+        card.style.transition = 'transform 0.12s ease-out, filter 0.2s ease';
+      }
+
+      function onPointerLeave() {
+        isHovered = false;
+        card.style.transition = 'transform 0.45s cubic-bezier(0.2, 0.8, 0.3, 1), filter 0.3s ease';
+        card.style.transform = 'perspective(800px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)';
+      }
+
+      function onPointerDown() {
+        card.style.transform += ' scale3d(0.97, 0.97, 0.97)';
+      }
+
+      function onPointerUp() {
+        if (isHovered) {
+          card.style.transform = card.style.transform.replace(' scale3d(0.97, 0.97, 0.97)', '');
+        }
+      }
+
+      card.addEventListener('pointerenter', onPointerEnter);
+      card.addEventListener('pointermove', onPointerMove);
+      card.addEventListener('pointerleave', onPointerLeave);
+      card.addEventListener('pointerdown', onPointerDown);
+      window.addEventListener('pointerup', onPointerUp);
+      window.addEventListener('resize', updateBounds);
     }
 
     // ==================================================================
