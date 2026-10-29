@@ -19,6 +19,7 @@ from models import (
     Product,
     Transaction,
     TransactionReceipt,
+    TransactionType,
     User,
     UserSession,
     hash_password,
@@ -394,3 +395,48 @@ class TestVoiceEmailReceiptsAndMasterFixes:
 
         count = self.db.query(Transaction).filter(Transaction.customer_name == "Ramesh DoubleClick").count()
         assert count == 1, "Duplicate submit within 4s must not create a duplicate row!"
+
+    def test_voice_ambiguous_account_action_preempts_waiting_for_email_state(self):
+        """
+        Verifies that when an active session is in 'waiting_for_email' state,
+        an ambiguous account command ('Tausif ka khata khatam kar do') is NOT mistakenly
+        handled as an invalid email string, and instead asks for clarification
+        with action_taken='ambiguous_account_action' and zero database mutations.
+        """
+        # Seed customer Tausif with debt
+        tx = Transaction(
+            user_id=self.owner.id,
+            customer_name="Tausif",
+            amount=2000.0,
+            amount_paise=200000,
+            transaction_type=TransactionType.UDHAAR
+        )
+        self.db.add(tx)
+        self.db.commit()
+        initial_tx_count = self.db.query(Transaction).count()
+
+        # Step 1: Create a pending operation waiting for email
+        req1 = {"text": "Aman ka 500 udhaar likho", "session_id": "test_ambig_s1"}
+        resp1 = client.post("/api/voice-assistant", json=req1, headers=self.auth_headers)
+        assert resp1.status_code == 200
+        data1 = resp1.json()
+        assert data1["action_taken"] == "waiting_for_customer_email"
+        pending_op_id = data1["pending_operation"]["operation_id"]
+
+        # Step 2: Speak ambiguous account action with the pending operation id
+        req2 = {
+            "text": "Tausif ka khata khatam kar do",
+            "session_id": "test_ambig_s1",
+            "pending_operation_id": pending_op_id
+        }
+        resp2 = client.post("/api/voice-assistant", json=req2, headers=self.auth_headers)
+        assert resp2.status_code == 200
+        data2 = resp2.json()
+
+        # Must not be 'waiting_for_customer_email'
+        assert data2["action_taken"] == "ambiguous_account_action"
+        assert not data2["requires_confirmation"]
+        assert "settle" in data2["reply_message"].lower()
+
+        # Zero ledger mutations
+        assert self.db.query(Transaction).count() == initial_tx_count

@@ -75,7 +75,13 @@ from models import (
     LedgerEntryResponse,
     LedgerHistoryResponse,
     ParseInputRequest,
+    PaymentClaimApproveRequest,
+    PaymentClaimCreateRequest,
+    PaymentClaimListResponse,
+    PaymentClaimRejectRequest,
+    PaymentClaimResponse,
     PaymentReminder,
+    PaymentVerification,
     PendingOperationData,
     Product,
     ProductCreateRequest,
@@ -1722,8 +1728,17 @@ def handle_voice_assistant(
         return VoiceAssistantResponse(reply_message=reply, action_taken="stopped", requires_confirmation=False)
 
     # 4B. Check if active pending operation is waiting for customer email
+    # Guard: If current command is an ambiguous account action or clarification request,
+    # do NOT intercept it as an invalid email string!
+    AMBIGUOUS_ACCOUNT_PHRASES = (
+        "khata khatam", "खाता खत्म", "khata band", "खाता बंद",
+        "khata delete", "hisaab khatam", "hisab khatam", "खाता हटाओ",
+        "hisaab barabar", "hisaab chukta", "hisab clear", "close account", "delete account"
+    )
+    is_ambiguous_account_action = any(q in raw_text.lower() for q in AMBIGUOUS_ACCOUNT_PHRASES)
+
     extracted_email = ai_service.extract_email_from_text(raw_text)
-    if op_id and op_id in PENDING_VOICE_OPERATIONS and PENDING_VOICE_OPERATIONS[op_id].get("status") == "waiting_for_email":
+    if not is_ambiguous_account_action and op_id and op_id in PENDING_VOICE_OPERATIONS and PENDING_VOICE_OPERATIONS[op_id].get("status") == "waiting_for_email":
         op = PENDING_VOICE_OPERATIONS[op_id]
         if extracted_email and is_valid_email(extracted_email):
             op["customer_email"] = extracted_email
@@ -1966,8 +1981,13 @@ def handle_voice_assistant(
 
     # Intent J: AMBIGUOUS ACCOUNT ACTION ("Tausif ka khata khatam kar do")
     # Never mutate database without clarification!
-    if intent_result.intent == VoiceIntentType.AMBIGUOUS_ACCOUNT_ACTION:
-        cname = intent_result.customer_name or "customer"
+    if intent_result.intent == VoiceIntentType.AMBIGUOUS_ACCOUNT_ACTION or (intent_result.intent == VoiceIntentType.SETTLE_BALANCE and is_ambiguous_account_action):
+        cname = intent_result.customer_name
+        if not cname:
+            m = re.search(r"([A-Za-z\u0900-\u097F]+(?:\s+ji)?)\s+ka\s+(?:khata|hisaab|hisab)", raw_text.lower())
+            if not m:
+                m = re.search(r"(?:close|delete|clear)\s+([A-Za-z\u0900-\u097F]+)'?s?\s+account", raw_text.lower())
+            cname = m.group(1).title() if m else "customer"
         records_query = db.query(Transaction).filter(func.lower(Transaction.customer_name) == cname.lower())
         if auth_user_id is not None:
             records_query = records_query.filter(Transaction.user_id == auth_user_id)
@@ -3934,6 +3954,399 @@ def send_email_reminder(
         reminder_id=reminder_rec.id,
         timestamp=now_ist.strftime("%Y-%m-%d %H:%M:%S IST")
     )
+
+
+# ==========================================
+# Payment Verification & Manual Review Workflow
+# ==========================================
+
+def get_customer_outstanding_balance_paise(db: Session, shop_id: int, customer_name: str) -> int:
+    """Calculates customer's current outstanding balance strictly in integer paise."""
+    txs = (
+        db.query(Transaction.amount_paise, Transaction.transaction_type)
+        .filter(
+            Transaction.user_id == shop_id,
+            func.lower(Transaction.customer_name) == customer_name.strip().lower()
+        )
+        .all()
+    )
+    udhaar = sum(t.amount_paise for t in txs if t.transaction_type == TransactionType.UDHAAR)
+    jama = sum(t.amount_paise for t in txs if t.transaction_type == TransactionType.JAMA)
+    return udhaar - jama
+
+
+def format_claim_response(claim: PaymentVerification, db: Session, include_balance: bool = False) -> PaymentClaimResponse:
+    """Builds a standardized PaymentClaimResponse model."""
+    reviewer_name = None
+    if claim.reviewed_by_user_id:
+        rev_user = db.query(User).filter(User.id == claim.reviewed_by_user_id).first()
+        if rev_user:
+            reviewer_name = rev_user.owner_name or rev_user.username
+
+    balance_val = None
+    if include_balance:
+        bal_paise = get_customer_outstanding_balance_paise(db, claim.shop_id, claim.customer_name)
+        balance_val = round(bal_paise / 100.0, 2)
+
+    return PaymentClaimResponse(
+        id=claim.id,
+        shop_id=claim.shop_id,
+        customer_name=claim.customer_name,
+        customer_email=claim.customer_email,
+        customer_phone=claim.customer_phone,
+        claimed_amount=claim.claimed_amount,
+        claimed_amount_paise=claim.claimed_amount_paise,
+        verified_amount=claim.verified_amount,
+        verified_amount_paise=claim.verified_amount_paise,
+        payment_method=claim.payment_method or "UPI",
+        destination_upi_id=claim.destination_upi_id or "goyal.com@fam",
+        utr_number=claim.utr_number,
+        customer_notes=claim.customer_notes,
+        status=claim.status,
+        reviewed_by_user_id=claim.reviewed_by_user_id,
+        reviewer_name=reviewer_name,
+        reviewed_at=claim.reviewed_at.strftime("%Y-%m-%d %H:%M:%S IST") if claim.reviewed_at else None,
+        review_notes=claim.review_notes,
+        resulting_transaction_id=claim.resulting_transaction_id,
+        current_outstanding_balance=balance_val,
+        created_at=claim.created_at.strftime("%Y-%m-%d %H:%M:%S IST")
+    )
+
+
+@app.post(
+    "/api/payment-verifications",
+    response_model=PaymentClaimResponse,
+    summary="Register a payment claim (from WhatsApp screenshot/UPI) for manual verification"
+)
+def register_payment_claim(
+    payload: PaymentClaimCreateRequest,
+    current_user: User = Depends(require_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Registers a customer payment claim in PENDING state.
+    CRITICAL: Does NOT create a ledger transaction or alter customer balance.
+    A ledger transaction is ONLY created upon explicit manual approval by an authorized shopkeeper.
+    """
+    shop_id = get_effective_shop_id(current_user)
+    cname = payload.customer_name.strip()
+    cemail = payload.customer_email.strip().lower() if payload.customer_email else None
+    cphone = payload.customer_phone.strip() if payload.customer_phone else None
+
+    # Lookup past transaction for customer to prefill email/phone if omitted
+    if not cemail or not cphone:
+        past_tx = (
+            db.query(Transaction)
+            .filter(Transaction.user_id == shop_id, func.lower(Transaction.customer_name) == cname.lower())
+            .order_by(Transaction.timestamp.desc())
+            .first()
+        )
+        if past_tx:
+            if not cemail and past_tx.customer_email:
+                cemail = past_tx.customer_email
+            if not cphone and past_tx.customer_phone:
+                cphone = past_tx.customer_phone
+
+    claimed_paise = int(round(payload.claimed_amount * 100))
+    if claimed_paise <= 0:
+        raise HTTPException(status_code=400, detail="Claimed payment amount must be greater than zero.")
+
+    claim = PaymentVerification(
+        shop_id=shop_id,
+        customer_name=cname,
+        customer_email=cemail,
+        customer_phone=cphone,
+        claimed_amount=payload.claimed_amount,
+        claimed_amount_paise=claimed_paise,
+        payment_method=payload.payment_method or "UPI",
+        destination_upi_id=payload.destination_upi_id or "goyal.com@fam",
+        utr_number=payload.utr_number.strip() if payload.utr_number else None,
+        customer_notes=payload.customer_notes.strip() if payload.customer_notes else None,
+        status="PENDING",
+        created_at=get_current_ist_time()
+    )
+    db.add(claim)
+    db.commit()
+    db.refresh(claim)
+
+    log_audit_event(
+        db, shop_id, current_user, "PAYMENT_CLAIM_RECORDED",
+        resource_type="payment_verification", resource_id=str(claim.id),
+        details={
+            "customer": cname,
+            "claimed_amount": payload.claimed_amount,
+            "utr": claim.utr_number,
+            "payment_method": claim.payment_method
+        }
+    )
+
+    return format_claim_response(claim, db, include_balance=True)
+
+
+@app.get(
+    "/api/payment-verifications",
+    response_model=PaymentClaimListResponse,
+    summary="List all payment claims for the shop with filtering"
+)
+def list_payment_claims(
+    status: Optional[str] = None,
+    customer_name: Optional[str] = None,
+    current_user: User = Depends(require_current_user),
+    db: Session = Depends(get_db)
+):
+    """Lists payment claims filtered by status (PENDING, APPROVED, REJECTED) and customer name."""
+    shop_id = get_effective_shop_id(current_user)
+
+    base_query = db.query(PaymentVerification).filter(PaymentVerification.shop_id == shop_id)
+
+    total_count = base_query.count()
+    pending_count = base_query.filter(PaymentVerification.status == "PENDING").count()
+    approved_count = base_query.filter(PaymentVerification.status == "APPROVED").count()
+    rejected_count = base_query.filter(PaymentVerification.status == "REJECTED").count()
+
+    filtered_query = base_query
+    if status and status.strip().upper() != "ALL":
+        filtered_query = filtered_query.filter(PaymentVerification.status == status.strip().upper())
+
+    if customer_name and customer_name.strip():
+        filtered_query = filtered_query.filter(
+            func.lower(PaymentVerification.customer_name).contains(customer_name.strip().lower())
+        )
+
+    claims_rows = filtered_query.order_by(PaymentVerification.created_at.desc()).all()
+
+    formatted_claims = [format_claim_response(c, db, include_balance=False) for c in claims_rows]
+
+    return PaymentClaimListResponse(
+        total_count=total_count,
+        pending_count=pending_count,
+        approved_count=approved_count,
+        rejected_count=rejected_count,
+        claims=formatted_claims
+    )
+
+
+@app.get(
+    "/api/payment-verifications/{id}",
+    response_model=PaymentClaimResponse,
+    summary="Get details of a specific payment claim"
+)
+def get_payment_claim(
+    id: int,
+    current_user: User = Depends(require_current_user),
+    db: Session = Depends(get_db)
+):
+    """Retrieves full details of a payment claim along with current customer balance."""
+    shop_id = get_effective_shop_id(current_user)
+    claim = (
+        db.query(PaymentVerification)
+        .filter(PaymentVerification.id == id, PaymentVerification.shop_id == shop_id)
+        .first()
+    )
+    if not claim:
+        raise HTTPException(status_code=404, detail=f"Payment claim #{id} not found.")
+
+    return format_claim_response(claim, db, include_balance=True)
+
+
+@app.post(
+    "/api/payment-verifications/{id}/approve",
+    response_model=PaymentClaimResponse,
+    summary="Approve a payment claim, verify bank credit, and atomically commit JAMA transaction"
+)
+def approve_payment_claim(
+    id: int,
+    payload: PaymentClaimApproveRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(check_role(["OWNER", "MANAGER"])),
+    db: Session = Depends(get_db)
+):
+    """
+    CRITICAL FINANCIAL WORKFLOW:
+    1. Validates that claim is in PENDING state.
+    2. Atomically creates exactly one JAMA Transaction in integer paise.
+    3. Updates claim to APPROVED and links resulting_transaction_id.
+    4. Creates transactional outbox email receipt for customer.
+    5. Deducts the verified amount from customer's khata balance.
+    """
+    shop_id = get_effective_shop_id(current_user)
+    claim = (
+        db.query(PaymentVerification)
+        .filter(PaymentVerification.id == id, PaymentVerification.shop_id == shop_id)
+        .first()
+    )
+    if not claim:
+        raise HTTPException(status_code=404, detail=f"Payment claim #{id} not found.")
+
+    if claim.status != "PENDING":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Claim #{id} is already in '{claim.status}' state and cannot be approved."
+        )
+
+    # Determine verified amount
+    verified_amount = payload.verified_amount if payload.verified_amount is not None else claim.claimed_amount
+    verified_paise = int(round(verified_amount * 100))
+    if verified_paise <= 0:
+        raise HTTPException(status_code=400, detail="Verified amount must be greater than zero.")
+
+    # Validate customer email (mandatory for receipts)
+    cust_email = (payload.customer_email.strip().lower() if payload.customer_email else None) or claim.customer_email
+    if not cust_email:
+        # Check historical records
+        hist_tx = (
+            db.query(Transaction)
+            .filter(
+                Transaction.user_id == shop_id,
+                func.lower(Transaction.customer_name) == claim.customer_name.lower(),
+                Transaction.customer_email.isnot(None)
+            )
+            .order_by(Transaction.timestamp.desc())
+            .first()
+        )
+        if hist_tx and hist_tx.customer_email:
+            cust_email = hist_tx.customer_email
+
+    if not cust_email or not is_valid_email(cust_email):
+        raise HTTPException(
+            status_code=400,
+            detail="Customer email is required to approve payment and issue an official khata receipt. Please provide customer_email."
+        )
+
+    now_ist = get_current_ist_time()
+    notes_parts = ["Payment verified via UPI/WhatsApp"]
+    if claim.utr_number:
+        notes_parts.append(f"(Ref/UTR: {claim.utr_number})")
+    if payload.notes:
+        notes_parts.append(f"- {payload.notes.strip()}")
+    tx_notes = " ".join(notes_parts)
+
+    try:
+        # 1. Create single atomic JAMA transaction
+        jama_tx = Transaction(
+            user_id=shop_id,
+            customer_name=claim.customer_name,
+            customer_phone=claim.customer_phone,
+            customer_email=cust_email,
+            amount_paise=verified_paise,
+            amount=round(verified_paise / 100.0, 2),
+            transaction_type=TransactionType.JAMA,
+            notes=tx_notes,
+            timestamp=now_ist
+        )
+        db.add(jama_tx)
+        db.flush()
+
+        # 2. Update claim state
+        claim.status = "APPROVED"
+        claim.verified_amount = round(verified_paise / 100.0, 2)
+        claim.verified_amount_paise = verified_paise
+        claim.customer_email = cust_email
+        claim.reviewed_by_user_id = current_user.id
+        claim.reviewed_at = now_ist
+        claim.review_notes = payload.notes.strip() if payload.notes else None
+        claim.resulting_transaction_id = jama_tx.id
+
+        # 3. Create transactional outbox receipt
+        receipt_job = TransactionReceipt(
+            shop_id=shop_id,
+            transaction_id=jama_tx.id,
+            customer_name=claim.customer_name,
+            customer_email=cust_email,
+            status="PENDING",
+            attempts=0,
+            created_at=now_ist
+        )
+        db.add(receipt_job)
+
+        # 4. Commit atomic transaction
+        db.commit()
+        db.refresh(claim)
+        db.refresh(jama_tx)
+        db.refresh(receipt_job)
+
+        # 5. Enqueue background email dispatch
+        if background_tasks:
+            background_tasks.add_task(dispatch_receipt_email_job, receipt_job.id)
+        else:
+            import threading
+            threading.Thread(target=dispatch_receipt_email_job, args=(receipt_job.id,), daemon=True).start()
+
+        # 6. Audit Log
+        log_audit_event(
+            db, shop_id, current_user, "PAYMENT_CLAIM_APPROVED",
+            resource_type="payment_verification", resource_id=str(claim.id),
+            details={
+                "customer": claim.customer_name,
+                "claimed_amount": claim.claimed_amount,
+                "verified_amount": claim.verified_amount,
+                "transaction_id": jama_tx.id,
+                "utr": claim.utr_number
+            }
+        )
+
+        return format_claim_response(claim, db, include_balance=True)
+
+    except Exception as exc:
+        db.rollback()
+        logger.error(f"Error approving payment claim #{id}: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to approve payment claim: {str(exc)}"
+        )
+
+
+@app.post(
+    "/api/payment-verifications/{id}/reject",
+    response_model=PaymentClaimResponse,
+    summary="Reject a payment claim without altering the ledger balance"
+)
+def reject_payment_claim(
+    id: int,
+    payload: PaymentClaimRejectRequest,
+    current_user: User = Depends(check_role(["OWNER", "MANAGER"])),
+    db: Session = Depends(get_db)
+):
+    """
+    Rejects an unverified or fraudulent payment claim.
+    CRITICAL: Does NOT create any ledger transaction or alter customer balance.
+    """
+    shop_id = get_effective_shop_id(current_user)
+    claim = (
+        db.query(PaymentVerification)
+        .filter(PaymentVerification.id == id, PaymentVerification.shop_id == shop_id)
+        .first()
+    )
+    if not claim:
+        raise HTTPException(status_code=404, detail=f"Payment claim #{id} not found.")
+
+    if claim.status != "PENDING":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Claim #{id} is already in '{claim.status}' state and cannot be rejected."
+        )
+
+    now_ist = get_current_ist_time()
+    claim.status = "REJECTED"
+    claim.reviewed_by_user_id = current_user.id
+    claim.reviewed_at = now_ist
+    claim.review_notes = payload.notes.strip()
+
+    db.commit()
+    db.refresh(claim)
+
+    log_audit_event(
+        db, shop_id, current_user, "PAYMENT_CLAIM_REJECTED",
+        resource_type="payment_verification", resource_id=str(claim.id),
+        details={
+            "customer": claim.customer_name,
+            "claimed_amount": claim.claimed_amount,
+            "rejection_reason": payload.notes.strip(),
+            "utr": claim.utr_number
+        }
+    )
+
+    return format_claim_response(claim, db, include_balance=True)
 
 
 # ==========================================

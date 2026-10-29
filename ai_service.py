@@ -56,6 +56,9 @@ VOICE_INTENT_SYSTEM_PROMPT = (
     "- QUERY_DATE_RANGE_SUMMARY: Historical report. E.g. 'Kal ki report dikhao', 'Pichhle saat din ka hisab', 'Yesterday\'s summary', 'This month\'s ledger'.\n"
     "- QUERY_CUSTOMER_LIST: Customers who owe money. E.g. 'Kis-kis customer ke paise baaki hain?', 'Who owes money?', 'Which customers have pending balance?'.\n"
     "- QUERY_CUSTOMER_HISTORY: Transaction history. E.g. 'Raju ka purana hisaab dikhao', 'Show transaction history for Ramesh'.\n"
+    "- AMBIGUOUS_ACCOUNT_ACTION: Ambiguous phrases about ending/closing/deleting a khata or account without explicitly saying settle (e.g. 'Tausif ka khata khatam kar do', 'Ramesh ka khata band kar do', 'Close Amit\\'s account'). Must ask clarification instead of settling.\n"
+    "- SETTLE_BALANCE: Explicit instruction to settle customer balance. E.g. 'Tausif ka balance settle karo', 'Hisab settle kar do', 'Settle John\\'s balance'.\n"
+    "- NAVIGATE_VIEW: Navigating to a specific screen or view in the app. E.g. 'ledger book kholo', 'open inventory', 'customer directory dikhao', 'go to settings'. Target view must be one of: 'dashboard', 'ledger', 'customers', 'inventory', 'reminders', 'reports', 'settings', 'team', 'verifications'.\n"
     "- CONFIRM: Explicit confirmation. E.g. 'Haan, save kar do', 'Confirm karo', 'Theek hai', 'Yes, confirm'.\n"
     "- CANCEL: Explicit cancellation. E.g. 'Nahi, cancel kar do', 'Radd karo', 'Mat save karo', 'No, cancel it'.\n"
     "- CORRECT_PENDING_ENTRY: Correcting details of pending transaction. E.g. '500 nahi 800', 'Amount galat hai 800 karo'.\n"
@@ -76,8 +79,8 @@ VOICE_INTENT_SYSTEM_PROMPT = (
     "- If goods/credit was given, transaction_type is 'UDHAAR'.\n"
     "- If payment/cash was received/given back, transaction_type is 'JAMA'.\n"
     "- Return ONLY valid JSON in this schema:\n"
-    '{"intent": "ENTRY"|"QUERY_CUSTOMER_BALANCE"|"QUERY_CUSTOMER_HISTORY"|"QUERY_DAILY_SUMMARY"|"QUERY_DATE_RANGE_SUMMARY"|"QUERY_CUSTOMER_LIST"|"AMBIGUOUS_ACCOUNT_ACTION"|"SETTLE_BALANCE"|"CONFIRM"|"CANCEL"|"CORRECT_PENDING_ENTRY"|"REPEAT_LAST_RESPONSE"|"STOP_ASSISTANT"|"UNKNOWN", '
-    '"customer_name": "string or null", "amount": number or null, "transaction_type": "UDHAAR"|"JAMA"|null, '
+    '{"intent": "ENTRY"|"QUERY_CUSTOMER_BALANCE"|"QUERY_CUSTOMER_HISTORY"|"QUERY_DAILY_SUMMARY"|"QUERY_DATE_RANGE_SUMMARY"|"QUERY_CUSTOMER_LIST"|"AMBIGUOUS_ACCOUNT_ACTION"|"SETTLE_BALANCE"|"NAVIGATE_VIEW"|"CONFIRM"|"CANCEL"|"CORRECT_PENDING_ENTRY"|"REPEAT_LAST_RESPONSE"|"STOP_ASSISTANT"|"UNKNOWN", '
+    '"customer_name": "string or null", "amount": number or null, "transaction_type": "UDHAAR"|"JAMA"|null, "target_view": "dashboard"|"ledger"|"customers"|"inventory"|"reminders"|"reports"|"settings"|"team"|"verifications"|null, '
     '"date_filter": "today"|"yesterday"|"last_7_days"|"this_month"|null, "corrected_amount": number or null, '
     '"clarification_message": "string or null", "language": "hindi"|"hinglish"|"english"}'
 )
@@ -169,12 +172,14 @@ def get_active_model_name() -> str:
 
 
 def get_candidate_models() -> List[str]:
-    """Builds an ordered list of candidate models with modern fallbacks."""
+    """Builds an ordered list of candidate models with modern fallbacks (bounded to 3 candidates)."""
     configured = get_active_model_name()
     candidates = [configured]
-    for model in RECOMMENDED_MODELS:
+    for model in ["gemini-2.0-flash", "gemini-1.5-flash"] + RECOMMENDED_MODELS:
         if model not in candidates:
             candidates.append(model)
+        if len(candidates) >= 3:
+            break
     return candidates
 
 
@@ -460,6 +465,61 @@ def fast_match_voice_intent(raw_text: str) -> Optional[VoiceIntentResult]:
             language=lang
         )
 
+    # 7B. Navigation Fast Path (e.g., "ledger book kholo", "open inventory", "customer list dikhao", "reports kholo", "open settings")
+    # Must precede entry parser and avoid false positives on financial records with amounts
+    nav_verbs = ("kholo", "dikhao", "open", "show", "navigate", "go to", "khol do", "kholna", "kholiye", "dikhana")
+    has_nav_verb = any(v in text for v in nav_verbs)
+    has_amt = bool(re.search(r"\d+", text))
+    has_verification = any(w in text for w in ("verification", "verifications", "claims"))
+    has_fin_op = any(k in text for k in ("udhaar", "udhar", "credit", "jama", "paid", "likho", "likh do")) or ("payment" in text and not has_verification)
+
+    # Direct single-term view navigation aliases (e.g., user just says "ledger", "inventory", "settings")
+    direct_view_map = {
+        "ledger": "ledger",
+        "ledger book": "ledger",
+        "bahi khata": "ledger",
+        "inventory": "inventory",
+        "stock": "inventory",
+        "customers": "customers",
+        "customer directory": "customers",
+        "reminders": "reminders",
+        "reports": "reports",
+        "analytics": "reports",
+        "settings": "settings",
+        "team": "team",
+        "verifications": "verifications",
+        "dashboard": "dashboard",
+    }
+    if text in direct_view_map:
+        return VoiceIntentResult(intent=VoiceIntentType.NAVIGATE_VIEW, target_view=direct_view_map[text], language=lang)
+
+    if has_nav_verb and not has_amt and not has_fin_op:
+        # Check target views
+        if any(w in text for w in ("ledger", "bahi khata", "khata book")):
+            # Guard against specific customer ledger queries: "Sharma ji ka ledger dikhao"
+            if not re.search(r"([A-Za-z\u0900-\u097F]+(?:\s+ji)?)\s+ka\s+ledger", text):
+                return VoiceIntentResult(intent=VoiceIntentType.NAVIGATE_VIEW, target_view="ledger", language=lang)
+        if any(w in text for w in ("customer directory", "customer list", "customers", "grahak suchi", "grahak list")):
+            return VoiceIntentResult(intent=VoiceIntentType.NAVIGATE_VIEW, target_view="customers", language=lang)
+        if any(w in text for w in ("inventory", "stock", "product catalog", "products", "maal", "saman list")):
+            return VoiceIntentResult(intent=VoiceIntentType.NAVIGATE_VIEW, target_view="inventory", language=lang)
+        if any(w in text for w in ("reminder", "reminders", "tagada")):
+            # Guard against "Sharma ji ko reminder bhejo"
+            if not any(k in text for k in ("bhejo", "send", "kar do", "karo")) or any(k in text for k in ("screen", "page", "tab", "view")):
+                return VoiceIntentResult(intent=VoiceIntentType.NAVIGATE_VIEW, target_view="reminders", language=lang)
+        if any(w in text for w in ("report", "reports", "analytics")):
+            # Guard against "aaj ki report" (daily summary)
+            if not any(d in text for d in ("aaj", "kal", "today", "yesterday")):
+                return VoiceIntentResult(intent=VoiceIntentType.NAVIGATE_VIEW, target_view="reports", language=lang)
+        if any(w in text for w in ("setting", "settings", "shop settings", "dukan settings")):
+            return VoiceIntentResult(intent=VoiceIntentType.NAVIGATE_VIEW, target_view="settings", language=lang)
+        if any(w in text for w in ("team", "staff", "access control", "rbac")):
+            return VoiceIntentResult(intent=VoiceIntentType.NAVIGATE_VIEW, target_view="team", language=lang)
+        if any(w in text for w in ("verification", "verifications", "claims", "payment verification")):
+            return VoiceIntentResult(intent=VoiceIntentType.NAVIGATE_VIEW, target_view="verifications", language=lang)
+        if any(w in text for w in ("dashboard", "home", "home screen", "main screen")):
+            return VoiceIntentResult(intent=VoiceIntentType.NAVIGATE_VIEW, target_view="dashboard", language=lang)
+
     # 8. Daily Summary & Collection Fast Path (e.g., "Aaj ka total hisaab batao", "Today's summary")
     if any(q in text for q in (
         "aaj ka total hisaab", "aaj ka total hisab", "aaj ka hisaab", "aaj ka hisab",
@@ -473,8 +533,32 @@ def fast_match_voice_intent(raw_text: str) -> Optional[VoiceIntentResult]:
             language=lang
         )
 
-    # 8B. Balance Settlement Fast Path (e.g., "Tausif ka balance settle karo", "settle balance")
-    if any(q in text for q in ("settle karo", "balance settle", "settle kar do", "chukta kar do", "hisab barabar", "settle")):
+    # 8B. Ambiguous Account Action Fast Path (e.g., "Tausif ka khata khatam kar do", "Close Ramesh's account")
+    # Must precede balance settlement so ambiguous phrases are not mistaken for explicit settlement requests
+    ambiguous_account_phrases = (
+        "khata khatam", "खाता खत्म", "khata band", "खाता बंद",
+        "khata delete", "hisaab khatam", "hisab khatam", "खाता हटाओ",
+        "hisaab barabar", "hisaab chukta", "hisab clear", "close account", "delete account"
+    )
+    if any(q in text for q in ambiguous_account_phrases):
+        m = re.search(r"([A-Za-z\u0900-\u097F]+(?:\s+ji)?)\s+ka\s+(?:khata|hisaab|hisab)", text)
+        if not m:
+            m = re.search(r"(?:close|delete|clear)\s+([A-Za-z\u0900-\u097F]+)'?s?\s+account", text)
+        ambig_name = m.group(1).title() if m else None
+        clarification = (
+            f"Would you like to settle the balance for {ambig_name or 'this customer'} or close the account?"
+            if lang == "english" else
+            f"Aap {ambig_name or 'customer'} ka baaki balance settle karna chahte hain ya account band karna chahte hain?"
+        )
+        return VoiceIntentResult(
+            intent=VoiceIntentType.AMBIGUOUS_ACCOUNT_ACTION,
+            customer_name=ambig_name,
+            clarification_message=clarification,
+            language=lang
+        )
+
+    # 8C. Balance Settlement Fast Path (e.g., "Tausif ka balance settle karo", "settle balance")
+    if any(q in text for q in ("settle karo", "balance settle", "settle kar do", "chukta kar do", "settle")):
         m_set = re.search(r"([a-zA-Z\u0900-\u097F]+(?:\s+ji)?)\s+ka\s+balance\s+settle", text)
         if not m_set:
             m_set = re.search(r"([a-zA-Z\u0900-\u097F]+(?:\s+ji)?)\s+(?:ka|ki|ke)?\s*settle", text)
@@ -750,7 +834,14 @@ def classify_voice_command(user_text: str, context: Optional[dict] = None) -> Vo
         if "language" not in data or not data["language"]:
             data["language"] = detect_input_language(cleaned_input)
 
-        return VoiceIntentResult.model_validate(data)
+        parsed_result = VoiceIntentResult.model_validate(data)
+        # If AI model returned UNKNOWN, check if deterministic heuristic can resolve it
+        if parsed_result.intent == VoiceIntentType.UNKNOWN:
+            heuristic_res = fallback_heuristic_intent(processed_text)
+            if heuristic_res.intent != VoiceIntentType.UNKNOWN:
+                return heuristic_res
+
+        return parsed_result
     except Exception as parse_err:
         logger.error(f"Voice intent json parsing error: {parse_err}. Raw output was: {raw_response_text}")
         return fallback_heuristic_intent(processed_text)
@@ -781,6 +872,8 @@ def fallback_heuristic_intent(text: str) -> VoiceIntentResult:
             return VoiceIntentResult(intent=VoiceIntentType.NAVIGATE_VIEW, target_view="settings", language=lang)
         if any(w in lower for w in ("team", "staff", "access", "users")):
             return VoiceIntentResult(intent=VoiceIntentType.NAVIGATE_VIEW, target_view="team", language=lang)
+        if any(w in lower for w in ("verification", "verifications", "claims")):
+            return VoiceIntentResult(intent=VoiceIntentType.NAVIGATE_VIEW, target_view="verifications", language=lang)
 
     # 0B. Reminder Preparation (e.g. "Sharma ji ko reminder bhejo", "Send payment reminder to Ramesh")
     if any(q in lower for q in ("reminder bhejo", "reminder send", "tagada bhejo", "send reminder", "remind")):

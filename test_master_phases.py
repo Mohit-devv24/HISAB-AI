@@ -242,7 +242,7 @@ class TestHisabAIMasterPhases(unittest.TestCase):
     # Phase 2: AI & Voice Assistant Extended Intents
     # ==========================================
     def test_voice_assistant_extended_intents(self):
-        # 1. Navigation Intent
+        # 1. Navigation Intent: Ledger Book
         nav_res = client.post(
             "/api/voice-assistant",
             json={"text": "ledger book kholo", "session_id": "test_s1"},
@@ -251,6 +251,33 @@ class TestHisabAIMasterPhases(unittest.TestCase):
         self.assertEqual(nav_res.status_code, 200)
         self.assertEqual(nav_res.json()["action_taken"], "navigate_view")
         self.assertEqual(nav_res.json()["data"]["target_view"], "ledger")
+
+        # 1B. Navigation Aliases (Inventory, Customers, Verifications, Settings)
+        for phrase, expected_view in [
+            ("open inventory", "inventory"),
+            ("customer list dikhao", "customers"),
+            ("payment verification kholo", "verifications"),
+            ("open settings", "settings"),
+            ("team kholo", "team")
+        ]:
+            res = client.post(
+                "/api/voice-assistant",
+                json={"text": phrase, "session_id": "test_s1"},
+                headers=self._headers(self.owner_token)
+            )
+            self.assertEqual(res.status_code, 200)
+            self.assertEqual(res.json()["action_taken"], "navigate_view")
+            self.assertEqual(res.json()["data"]["target_view"], expected_view)
+
+        # 1C. Financial commands containing 'ledger' must NOT become navigation
+        fin_res = client.post(
+            "/api/voice-assistant",
+            json={"text": "Sharma ji ka 500 udhaar likho ledger mein", "session_id": "test_s1"},
+            headers=self._headers(self.owner_token)
+        )
+        self.assertEqual(fin_res.status_code, 200)
+        self.assertNotEqual(fin_res.json()["action_taken"], "navigate_view")
+        self.assertIn(fin_res.json()["action_taken"], ["prepared_entry", "waiting_for_customer_email"])
 
         # 2. Daily summary query
         t = Transaction(user_id=self.owner.id, customer_name="Test Cust", amount=350.0, transaction_type=TransactionType.JAMA)

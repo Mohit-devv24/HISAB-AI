@@ -3323,6 +3323,12 @@
           <span class="nav-link-text">Payment Reminders</span>
         </button>
 
+        <button type="button" class="nav-item" id="navVerifications" onclick="navigateTo('verifications')">
+          <span class="nav-icon">✅</span>
+          <span class="nav-link-text">Payment Verification</span>
+          <span class="badge hidden" id="navPendingVerificationsBadge" style="background:#dc2626; color:#fff; border-radius:10px; padding:2px 7px; font-size:11px; margin-left:auto; font-weight:700;">0</span>
+        </button>
+
         <button type="button" class="nav-item" id="navInventory" onclick="navigateTo('inventory')">
           <span class="nav-icon">📦</span>
           <span class="nav-link-text">Inventory Stock</span>
@@ -4213,6 +4219,104 @@
 
 
         <!-- ==================================================================
+             SUBVIEW: PAYMENT VERIFICATION & WHATSAPP RECEIPT WORKFLOW
+             ================================================================== -->
+        <section id="subviewVerifications" class="subview">
+          <!-- Overview Cards -->
+          <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px;">
+            <div class="stat-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px;">
+              <div style="font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Pending Verification</div>
+              <div id="statPendingClaims" style="font-size: 1.8rem; font-weight: 800; color: #d97706; margin-top: 4px;">0</div>
+              <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 4px;">Awaiting bank/UPI credit check</div>
+            </div>
+            <div class="stat-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px;">
+              <div style="font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Approved & Credited</div>
+              <div id="statApprovedClaims" style="font-size: 1.8rem; font-weight: 800; color: #166534; margin-top: 4px;">0</div>
+              <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 4px;">Ledger Jama recorded</div>
+            </div>
+            <div class="stat-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px;">
+              <div style="font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Rejected Claims</div>
+              <div id="statRejectedClaims" style="font-size: 1.8rem; font-weight: 800; color: #dc2626; margin-top: 4px;">0</div>
+              <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 4px;">Unverified / invalid</div>
+            </div>
+          </div>
+
+          <!-- Strict Verification Banner & UPI / WhatsApp Info -->
+          <div class="panel-card" style="margin-bottom: 20px; border-left: 4px solid #f59e0b; background: #fffdf5;">
+            <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px;">
+              <div>
+                <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: #92400e; display: flex; align-items: center; gap: 6px;">
+                  <span>⚠️</span> Strict Manual Verification Enforced
+                </h4>
+                <p style="margin: 4px 0 0; font-size: 0.82rem; color: #78350f; line-height: 1.4;">
+                  Claims submitted or received from WhatsApp screenshots <strong>NEVER</strong> automatically reduce ledger balances.
+                  Always verify that the payment is actually credited to your bank account / UPI before clicking <strong>Approve</strong>.
+                </p>
+              </div>
+              <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                <div style="background: #ffffff; border: 1px dashed #dc2626; padding: 6px 12px; border-radius: 6px; font-size: 0.8rem;">
+                  <span style="color: #64748b;">UPI ID:</span> <strong style="color: #5B0E14; font-family: monospace;">goyal.com@fam</strong>
+                </div>
+                <div style="background: #ffffff; border: 1px solid #bbf7d0; padding: 6px 12px; border-radius: 6px; font-size: 0.8rem;">
+                  <span style="color: #166534;">WhatsApp Line:</span> <strong>+91 6375940658</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Main Table Panel -->
+          <div class="panel-card">
+            <div class="panel-header" style="flex-wrap: wrap; gap: 12px;">
+              <div class="panel-title">
+                <span>✅</span> Payment Claims & WhatsApp Receipts
+              </div>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button type="button" class="btn-action-primary" id="btnOpenRecordClaim" onclick="openRecordClaimModal()">+ Record New Claim</button>
+                <button type="button" class="table-btn-action" onclick="loadPaymentClaims()">↻ Refresh</button>
+              </div>
+            </div>
+
+            <!-- Filters -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+              <div class="filter-tab-group" style="display: flex; gap: 6px;">
+                <button type="button" class="btn-tab active" id="tabFilterAll" onclick="filterClaimsStatus('ALL')">All</button>
+                <button type="button" class="btn-tab" id="tabFilterPending" onclick="filterClaimsStatus('PENDING')">Pending</button>
+                <button type="button" class="btn-tab" id="tabFilterApproved" onclick="filterClaimsStatus('APPROVED')">Approved</button>
+                <button type="button" class="btn-tab" id="tabFilterRejected" onclick="filterClaimsStatus('REJECTED')">Rejected</button>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <input type="text" id="inputClaimCustomerSearch" placeholder="Search customer name..." style="padding: 7px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem;" oninput="onClaimSearchInput()">
+              </div>
+            </div>
+
+            <!-- Claims Table -->
+            <div class="table-responsive">
+              <table class="data-table" id="claimsTable">
+                <thead>
+                  <tr>
+                    <th>Claim ID</th>
+                    <th>Date & Time</th>
+                    <th>Customer Name</th>
+                    <th>Claimed Amount</th>
+                    <th>UTR / Ref #</th>
+                    <th>Status</th>
+                    <th>Verified Amount</th>
+                    <th>Resulting TXN</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="claimsTableBody">
+                  <tr>
+                    <td colspan="9" style="text-align: center; color: #94a3b8; padding: 24px;">Loading payment claims...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+
+        <!-- ==================================================================
              SUBVIEW 9: INVENTORY MANAGEMENT
              ================================================================== -->
         <section id="subviewInventory" class="subview">
@@ -4664,6 +4768,134 @@
             <button type="submit" id="btnSendEmailReminder" class="auth-submit-btn" style="flex: 2; margin-top: 0;">✉️ Send via Brevo SMTP</button>
           </div>
         </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Record Payment Claim Modal -->
+  <div id="recordClaimModalOverlay" class="drawer-overlay" onclick="if(event.target===this) closeRecordClaimModal();">
+    <div class="drawer-modal-card" style="max-width: 480px;">
+      <div class="drawer-header">
+        <div style="font-size: 1.15rem; font-weight: 800; color: #0F172A;">📝 Record Payment Claim</div>
+        <button type="button" class="btn-logout" onclick="closeRecordClaimModal()">✕ Close</button>
+      </div>
+      <form id="recordClaimForm" onsubmit="handleRecordClaimSubmit(event)" class="drawer-body">
+        <div style="margin-bottom: 12px;">
+          <label class="auth-label">Customer Name *</label>
+          <input type="text" id="recordClaimCustomerName" class="auth-input" placeholder="e.g. Ramesh Kumar" required />
+        </div>
+        <div style="margin-bottom: 12px;">
+          <label class="auth-label">Claimed Amount (₹) *</label>
+          <input type="number" step="0.01" min="0.01" id="recordClaimAmount" class="auth-input" placeholder="e.g. 1500.00" required />
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
+          <div>
+            <label class="auth-label">Payment Method</label>
+            <select id="recordClaimMethod" class="auth-input">
+              <option value="UPI">UPI (GPay/PhonePe/Paytm)</option>
+              <option value="BANK_TRANSFER">Direct Bank Transfer</option>
+              <option value="QR_SCAN">QR Code Scan</option>
+              <option value="CASH">Cash Deposit</option>
+            </select>
+          </div>
+          <div>
+            <label class="auth-label">UTR / Ref Number</label>
+            <input type="text" id="recordClaimUtr" class="auth-input" placeholder="e.g. 402812345678" />
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
+          <div>
+            <label class="auth-label">Customer Email</label>
+            <input type="email" id="recordClaimEmail" class="auth-input" placeholder="customer@gmail.com" />
+          </div>
+          <div>
+            <label class="auth-label">Customer Phone</label>
+            <input type="tel" id="recordClaimPhone" class="auth-input" placeholder="e.g. 9876543210" />
+          </div>
+        </div>
+        <div style="margin-bottom: 16px;">
+          <label class="auth-label">Customer Notes / Screenshot Ref</label>
+          <input type="text" id="recordClaimNotes" class="auth-input" placeholder="e.g. Screenshot shared on WhatsApp at 2:30 PM" />
+        </div>
+        <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 10px; margin-bottom: 16px; font-size: 0.78rem; color: #92400e;">
+          ℹ️ <strong>Note:</strong> Recording a claim places it in <em>Pending Verification</em>. Customer khata balance will <strong>not</strong> change until verified and approved.
+        </div>
+        <button type="submit" class="auth-submit-btn">✓ Save Claim for Verification</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Review / Approve / Reject Payment Claim Modal -->
+  <div id="reviewClaimModalOverlay" class="drawer-overlay" onclick="if(event.target===this) closeReviewClaimModal();">
+    <div class="drawer-modal-card" style="max-width: 520px;">
+      <div class="drawer-header">
+        <div style="font-size: 1.15rem; font-weight: 800; color: #0F172A;" id="reviewClaimModalTitle">🔍 Review Payment Claim</div>
+        <button type="button" class="btn-logout" onclick="closeReviewClaimModal()">✕ Close</button>
+      </div>
+      <div class="drawer-body">
+        <!-- Claim Summary Banner -->
+        <div style="background: #F8FAFC; border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 14px; margin-bottom: 14px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div>
+              <span style="font-size: 0.78rem; color: #64748b;" id="reviewClaimIdDisplay">Claim #--</span>
+              <h3 style="margin: 2px 0 0; font-size: 1.1rem; color: #0F172A;" id="reviewClaimCustomerName">Customer</h3>
+            </div>
+            <div id="reviewClaimStatusBadge"></div>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.82rem; color: var(--text-secondary); margin-top: 10px; border-top: 1px solid #e2e8f0; padding-top: 8px;">
+            <div>Claimed Amount: <strong id="reviewClaimAmountDisplay" style="color: #0F172A; font-size: 0.95rem;">₹0.00</strong></div>
+            <div>Current Ledger Balance: <strong id="reviewCustomerBalanceDisplay" style="color: #dc2626; font-size: 0.95rem;">₹0.00</strong></div>
+            <div>UTR / Ref: <strong id="reviewClaimUtrDisplay" style="font-family: monospace; color: #0F172A;">None</strong></div>
+            <div>Submitted At: <span id="reviewClaimDateDisplay">--</span></div>
+          </div>
+          <div id="reviewCustomerNotesWrapper" style="margin-top: 8px; font-size: 0.8rem; color: #475569; font-style: italic;"></div>
+        </div>
+
+        <!-- Form for Pending Claims -->
+        <div id="reviewPendingActionBox">
+          <div style="margin-bottom: 12px;">
+            <label class="auth-label">Verified Credit Amount (₹) *</label>
+            <input type="number" step="0.01" min="0.01" id="reviewVerifiedAmountInput" class="auth-input" placeholder="Amount actually credited in bank" required />
+            <span style="font-size: 0.72rem; color: #64748b;">You can adjust this if customer made a partial payment.</span>
+          </div>
+
+          <div style="margin-bottom: 12px;">
+            <label class="auth-label">Customer Email (For Official Khata Receipt) *</label>
+            <input type="email" id="reviewCustomerEmailInput" class="auth-input" placeholder="customer@gmail.com" required />
+          </div>
+
+          <div style="margin-bottom: 14px;">
+            <label class="auth-label">Review Notes / Bank Statement Ref</label>
+            <input type="text" id="reviewNotesInput" class="auth-input" placeholder="e.g. Confirmed in SBI UPI statement" />
+          </div>
+
+          <!-- Mandatory verification checkbox -->
+          <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 12px; margin-bottom: 16px;">
+            <label style="display: flex; align-items: flex-start; gap: 8px; font-size: 0.82rem; color: #166534; cursor: pointer; margin: 0;">
+              <input type="checkbox" id="confirmCreditVerifiedCheckbox" style="margin-top: 2px;" onchange="toggleApprovalButtonState()" />
+              <span><strong>I confirm that I have checked my bank account / UPI statement</strong> and verified receipt of these funds before crediting the customer's khata.</span>
+            </label>
+          </div>
+
+          <!-- Action Buttons -->
+          <div style="display: flex; gap: 10px;">
+            <button type="button" id="btnRejectClaim" class="btn-action-secondary" style="flex: 1; border-color: #fca5a5; color: #dc2626;" onclick="rejectCurrentClaim()">
+              ✕ Reject Claim
+            </button>
+            <button type="button" id="btnApproveClaim" class="btn-action-primary" style="flex: 2; background: #059669; justify-content: center; opacity: 0.6; cursor: not-allowed;" disabled onclick="approveCurrentClaim()">
+              ✓ Approve & Credit Khata
+            </button>
+          </div>
+        </div>
+
+        <!-- Details for Already Reviewed Claims -->
+        <div id="reviewCompletedBox" style="display: none; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; font-size: 0.85rem;">
+          <div style="margin-bottom: 6px;"><strong>Reviewed By:</strong> <span id="reviewCompletedBy">--</span></div>
+          <div style="margin-bottom: 6px;"><strong>Reviewed At:</strong> <span id="reviewCompletedAt">--</span></div>
+          <div style="margin-bottom: 6px;" id="reviewCompletedVerifiedRow"><strong>Verified Amount:</strong> <span id="reviewCompletedAmount">--</span></div>
+          <div style="margin-bottom: 6px;" id="reviewCompletedTxnRow"><strong>Resulting Transaction:</strong> <span id="reviewCompletedTxn" style="font-family: monospace; font-weight: 700; color: #059669;">--</span></div>
+          <div id="reviewCompletedNotesRow"><strong>Reviewer Notes:</strong> <span id="reviewCompletedNotes" style="font-style: italic;">--</span></div>
+        </div>
       </div>
     </div>
   </div>
@@ -5152,6 +5384,7 @@
         voice: "🎙️ Voice Assistant Hub",
         reports: "📈 Reports & Analytics",
         reminders: "🔔 Payment Reminders",
+        verifications: "✅ Payment Verification & WhatsApp Receipts",
         inventory: "📦 Inventory Stock",
         team: "🛡️ Team & RBAC",
         backup_audit: "💾 Reliability, Backup & Audit",
@@ -5169,6 +5402,7 @@
         voice: ['navVoice', 'mobNavVoice', 'subviewVoice'],
         reports: ['navReports', null, 'subviewReports'],
         reminders: ['navReminders', null, 'subviewReminders'],
+        verifications: ['navVerifications', null, 'subviewVerifications'],
         inventory: ['navInventory', null, 'subviewInventory'],
         team: ['navTeam', null, 'subviewTeam'],
         backup_audit: ['navBackupAudit', null, 'subviewBackupAudit'],
@@ -5189,6 +5423,7 @@
       else if (viewId === 'ledger') fetchLedgerData(1);
       else if (viewId === 'reports') fetchReportsData();
       else if (viewId === 'reminders') fetchEligibleReminders();
+      else if (viewId === 'verifications') loadPaymentClaims();
       else if (viewId === 'inventory') fetchInventoryProducts();
       else if (viewId === 'team') fetchTeamMembers();
       else if (viewId === 'backup_audit') fetchAuditLogs();
@@ -6229,6 +6464,391 @@
         fetchTeamMembers();
       } catch (e) {
         showToast(e.message, 'error');
+      }
+    }
+
+    // ========================================================================
+    // Payment Verification & Manual Review Controller
+    // ========================================================================
+    let currentClaimFilterStatus = 'ALL';
+    let claimsCache = [];
+    let activeReviewClaim = null;
+
+    async function loadPaymentClaims() {
+      const tbody = document.getElementById('claimsTableBody');
+      if (!tbody) return;
+
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-secondary); padding: 24px;">Loading payment claims...</td></tr>';
+
+      try {
+        const queryParams = new URLSearchParams();
+        if (currentClaimFilterStatus && currentClaimFilterStatus !== 'ALL') {
+          queryParams.append('status', currentClaimFilterStatus);
+        }
+        const searchVal = document.getElementById('inputClaimCustomerSearch')?.value?.trim();
+        if (searchVal) {
+          queryParams.append('customer_name', searchVal);
+        }
+
+        const url = `/api/payment-verifications${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+        const resp = await fetch(url);
+        if (!resp.ok) {
+          const errData = await resp.json().catch(() => ({}));
+          throw new Error(errData.detail || "Failed to load payment verification claims");
+        }
+
+        const data = await resp.json();
+        claimsCache = data.claims || [];
+
+        // Update stats
+        if (document.getElementById('statPendingClaims')) document.getElementById('statPendingClaims').textContent = data.pending_count || 0;
+        if (document.getElementById('statApprovedClaims')) document.getElementById('statApprovedClaims').textContent = data.approved_count || 0;
+        if (document.getElementById('statRejectedClaims')) document.getElementById('statRejectedClaims').textContent = data.rejected_count || 0;
+
+        // Update nav badge
+        const badge = document.getElementById('navPendingVerificationsBadge');
+        if (badge) {
+          if (data.pending_count > 0) {
+            badge.textContent = data.pending_count;
+            badge.classList.remove('hidden');
+          } else {
+            badge.classList.add('hidden');
+          }
+        }
+
+        renderClaimsTable(claimsCache);
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--color-udhaar-red); padding: 24px;">${escapeHtml(err.message)}</td></tr>`;
+      }
+    }
+
+    function renderClaimsTable(claims) {
+      const tbody = document.getElementById('claimsTableBody');
+      if (!tbody) return;
+
+      if (!claims || claims.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--text-secondary); padding: 28px;">No payment claims found for this filter. <button type="button" class="table-btn-action" style="margin-left: 8px; font-weight: 700; background: var(--brand-primary); color: #fff;" onclick="openRecordClaimModal()">+ Record Claim</button></td></tr>`;
+        return;
+      }
+
+      let html = '';
+      claims.forEach(c => {
+        let badgeStyle = 'background: #fef3c7; color: #92400e; border: 1px solid #fde68a;';
+        if (c.status === 'APPROVED') {
+          badgeStyle = 'background: #dcfce7; color: #166534; border: 1px solid #bbf7d0;';
+        } else if (c.status === 'REJECTED') {
+          badgeStyle = 'background: #fee2e2; color: #991b1b; border: 1px solid #fecaca;';
+        }
+
+        const utrDisplay = c.utr_number ? `<span style="font-family: monospace; font-size: 0.82rem;">${escapeHtml(c.utr_number)}</span>` : '<span style="color: #94a3b8;">None</span>';
+        const verifiedDisplay = c.verified_amount !== null && c.verified_amount !== undefined
+          ? `<strong style="color: #166534;">₹${parseFloat(c.verified_amount).toFixed(2)}</strong>`
+          : '<span style="color: #94a3b8;">--</span>';
+        const txnDisplay = c.resulting_transaction_id
+          ? `<span style="font-family: monospace; font-weight: 700; color: #059669;">TXN-${String(c.resulting_transaction_id).padStart(6, '0')}</span>`
+          : '<span style="color: #94a3b8;">--</span>';
+
+        html += `
+          <tr>
+            <td style="font-family: monospace; font-weight: 700; color: #64748b;">#CLM-${String(c.id).padStart(5, '0')}</td>
+            <td style="font-size: 0.8rem; color: #475569;">${escapeHtml(c.created_at)}</td>
+            <td><strong>${escapeHtml(c.customer_name)}</strong></td>
+            <td style="font-weight: 800; color: #0F172A;">₹${parseFloat(c.claimed_amount).toFixed(2)}</td>
+            <td>${utrDisplay}</td>
+            <td><span class="badge" style="${badgeStyle} padding: 3px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 700;">${c.status}</span></td>
+            <td>${verifiedDisplay}</td>
+            <td>${txnDisplay}</td>
+            <td>
+              <button type="button" class="table-btn-action" onclick="openReviewClaimModal(${c.id})" style="font-size: 0.78rem; font-weight: 600;">
+                ${c.status === 'PENDING' ? '🔍 Review & Verify' : '👁️ View Details'}
+              </button>
+            </td>
+          </tr>
+        `;
+      });
+      tbody.innerHTML = html;
+    }
+
+    function filterClaimsStatus(status) {
+      currentClaimFilterStatus = status;
+      document.querySelectorAll('.filter-tab-group .btn-tab').forEach(btn => btn.classList.remove('active'));
+      if (status === 'ALL') document.getElementById('tabFilterAll')?.classList.add('active');
+      else if (status === 'PENDING') document.getElementById('tabFilterPending')?.classList.add('active');
+      else if (status === 'APPROVED') document.getElementById('tabFilterApproved')?.classList.add('active');
+      else if (status === 'REJECTED') document.getElementById('tabFilterRejected')?.classList.add('active');
+      loadPaymentClaims();
+    }
+
+    let claimSearchDebounce = null;
+    function onClaimSearchInput() {
+      clearTimeout(claimSearchDebounce);
+      claimSearchDebounce = setTimeout(() => {
+        loadPaymentClaims();
+      }, 250);
+    }
+
+    function openRecordClaimModal() {
+      const form = document.getElementById('recordClaimForm');
+      if (form) form.reset();
+      const overlay = document.getElementById('recordClaimModalOverlay');
+      if (overlay) {
+        overlay.classList.add('active');
+        overlay.style.display = 'flex';
+      }
+    }
+
+    function closeRecordClaimModal() {
+      const overlay = document.getElementById('recordClaimModalOverlay');
+      if (overlay) {
+        overlay.classList.remove('active');
+        overlay.style.display = 'none';
+      }
+    }
+
+    async function handleRecordClaimSubmit(event) {
+      event.preventDefault();
+      const customer_name = document.getElementById('recordClaimCustomerName').value.trim();
+      const claimed_amount = parseFloat(document.getElementById('recordClaimAmount').value);
+      const payment_method = document.getElementById('recordClaimMethod').value;
+      const utr_number = document.getElementById('recordClaimUtr').value.trim();
+      const customer_email = document.getElementById('recordClaimEmail').value.trim();
+      const customer_phone = document.getElementById('recordClaimPhone').value.trim();
+      const customer_notes = document.getElementById('recordClaimNotes').value.trim();
+
+      if (!customer_name || !claimed_amount || claimed_amount <= 0) {
+        showToast("Please enter a valid customer name and amount greater than 0.", "error");
+        return;
+      }
+
+      const submitBtn = event.target.querySelector('button[type="submit"]');
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Saving Claim...";
+      }
+
+      try {
+        const resp = await fetch('/api/payment-verifications', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            customer_name,
+            claimed_amount,
+            payment_method,
+            utr_number: utr_number || null,
+            customer_email: customer_email || null,
+            customer_phone: customer_phone || null,
+            customer_notes: customer_notes || null
+          })
+        });
+
+        if (!resp.ok) {
+          const errData = await resp.json().catch(() => ({}));
+          throw new Error(errData.detail || "Failed to record payment claim");
+        }
+
+        closeRecordClaimModal();
+        showToast(`✓ Payment claim for ₹${claimed_amount.toFixed(2)} recorded in Pending!`, 'success');
+        loadPaymentClaims();
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = "✓ Save Claim for Verification";
+        }
+      }
+    }
+
+    async function openReviewClaimModal(claimId) {
+      activeReviewClaim = null;
+      const overlay = document.getElementById('reviewClaimModalOverlay');
+      if (!overlay) return;
+
+      try {
+        const resp = await fetch(`/api/payment-verifications/${claimId}`);
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.detail || "Could not fetch claim details");
+        }
+        const claim = await resp.json();
+        activeReviewClaim = claim;
+
+        document.getElementById('reviewClaimIdDisplay').textContent = `Claim #CLM-${String(claim.id).padStart(5, '0')}`;
+        document.getElementById('reviewClaimCustomerName').textContent = claim.customer_name;
+        document.getElementById('reviewClaimAmountDisplay').textContent = `₹${parseFloat(claim.claimed_amount).toFixed(2)}`;
+        document.getElementById('reviewCustomerBalanceDisplay').textContent = claim.current_outstanding_balance !== null
+          ? `₹${parseFloat(claim.current_outstanding_balance).toFixed(2)}`
+          : '₹0.00';
+        document.getElementById('reviewClaimUtrDisplay').textContent = claim.utr_number || 'None';
+        document.getElementById('reviewClaimDateDisplay').textContent = claim.created_at;
+
+        const notesWrapper = document.getElementById('reviewCustomerNotesWrapper');
+        if (claim.customer_notes) {
+          notesWrapper.innerHTML = `<strong>Customer Note:</strong> "${escapeHtml(claim.customer_notes)}"`;
+          notesWrapper.style.display = 'block';
+        } else {
+          notesWrapper.style.display = 'none';
+        }
+
+        // Status Badge
+        const statusBadge = document.getElementById('reviewClaimStatusBadge');
+        let badgeStyle = 'background: #fef3c7; color: #92400e; border: 1px solid #fde68a;';
+        if (claim.status === 'APPROVED') {
+          badgeStyle = 'background: #dcfce7; color: #166534; border: 1px solid #bbf7d0;';
+        } else if (claim.status === 'REJECTED') {
+          badgeStyle = 'background: #fee2e2; color: #991b1b; border: 1px solid #fecaca;';
+        }
+        statusBadge.innerHTML = `<span class="badge" style="${badgeStyle} padding: 4px 10px; border-radius: 6px; font-size: 0.8rem; font-weight: 700;">${claim.status}</span>`;
+
+        const pendingBox = document.getElementById('reviewPendingActionBox');
+        const completedBox = document.getElementById('reviewCompletedBox');
+
+        if (claim.status === 'PENDING') {
+          pendingBox.style.display = 'block';
+          completedBox.style.display = 'none';
+
+          document.getElementById('reviewVerifiedAmountInput').value = claim.claimed_amount;
+          document.getElementById('reviewCustomerEmailInput').value = claim.customer_email || '';
+          document.getElementById('reviewNotesInput').value = '';
+          const chk = document.getElementById('confirmCreditVerifiedCheckbox');
+          if (chk) chk.checked = false;
+          toggleApprovalButtonState();
+        } else {
+          pendingBox.style.display = 'none';
+          completedBox.style.display = 'block';
+
+          document.getElementById('reviewCompletedBy').textContent = claim.reviewer_name || `User #${claim.reviewed_by_user_id || 'N/A'}`;
+          document.getElementById('reviewCompletedAt').textContent = claim.reviewed_at || '--';
+
+          const verRow = document.getElementById('reviewCompletedVerifiedRow');
+          const txnRow = document.getElementById('reviewCompletedTxnRow');
+          if (claim.status === 'APPROVED') {
+            verRow.style.display = 'block';
+            txnRow.style.display = 'block';
+            document.getElementById('reviewCompletedAmount').textContent = `₹${parseFloat(claim.verified_amount || claim.claimed_amount).toFixed(2)}`;
+            document.getElementById('reviewCompletedTxn').textContent = `TXN-${String(claim.resulting_transaction_id).padStart(6, '0')}`;
+          } else {
+            verRow.style.display = 'none';
+            txnRow.style.display = 'none';
+          }
+
+          const notesRow = document.getElementById('reviewCompletedNotesRow');
+          if (claim.review_notes) {
+            notesRow.style.display = 'block';
+            document.getElementById('reviewCompletedNotes').textContent = claim.review_notes;
+          } else {
+            notesRow.style.display = 'none';
+          }
+        }
+
+        overlay.classList.add('active');
+        overlay.style.display = 'flex';
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    }
+
+    function closeReviewClaimModal() {
+      const overlay = document.getElementById('reviewClaimModalOverlay');
+      if (overlay) {
+        overlay.classList.remove('active');
+        overlay.style.display = 'none';
+      }
+      activeReviewClaim = null;
+    }
+
+    function toggleApprovalButtonState() {
+      const chk = document.getElementById('confirmCreditVerifiedCheckbox');
+      const btn = document.getElementById('btnApproveClaim');
+      if (!btn) return;
+      if (chk && chk.checked) {
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        btn.style.cursor = 'pointer';
+      } else {
+        btn.disabled = true;
+        btn.style.opacity = '0.6';
+        btn.style.cursor = 'not-allowed';
+      }
+    }
+
+    async function approveCurrentClaim() {
+      if (!activeReviewClaim) return;
+      const verified_amount = parseFloat(document.getElementById('reviewVerifiedAmountInput').value);
+      const customer_email = document.getElementById('reviewCustomerEmailInput').value.trim();
+      const notes = document.getElementById('reviewNotesInput').value.trim();
+
+      if (!verified_amount || verified_amount <= 0) {
+        showToast("Please enter a valid positive verified amount.", "error");
+        return;
+      }
+      if (!customer_email) {
+        showToast("Customer email is required for khata payment verification and receipt dispatch.", "error");
+        return;
+      }
+
+      const btn = document.getElementById('btnApproveClaim');
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Committing to Ledger...";
+      }
+
+      try {
+        const resp = await fetch(`/api/payment-verifications/${activeReviewClaim.id}/approve`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            verified_amount,
+            customer_email,
+            notes: notes || null
+          })
+        });
+
+        if (!resp.ok) {
+          const errData = await resp.json().catch(() => ({}));
+          throw new Error(errData.detail || "Approval failed");
+        }
+
+        const resData = await resp.json();
+        closeReviewClaimModal();
+        showToast(`✓ Payment of ₹${verified_amount.toFixed(2)} approved & credited (TXN-${String(resData.resulting_transaction_id).padStart(6, '0')})! Receipt queued.`, 'success');
+        loadPaymentClaims();
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "✓ Approve & Credit Khata";
+        }
+      }
+    }
+
+    async function rejectCurrentClaim() {
+      if (!activeReviewClaim) return;
+      const notes = prompt("Please provide a reason for rejecting this claim (e.g., UTR not found, invalid screenshot):");
+      if (notes === null) return;
+      if (!notes.trim()) {
+        showToast("A rejection reason is required to reject a payment claim.", "error");
+        return;
+      }
+
+      try {
+        const resp = await fetch(`/api/payment-verifications/${activeReviewClaim.id}/reject`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ notes: notes.trim() })
+        });
+
+        if (!resp.ok) {
+          const errData = await resp.json().catch(() => ({}));
+          throw new Error(errData.detail || "Rejection failed");
+        }
+
+        closeReviewClaimModal();
+        showToast(`Claim rejected. No changes made to customer ledger balance.`, 'info');
+        loadPaymentClaims();
+      } catch (err) {
+        showToast(err.message, 'error');
       }
     }
 
@@ -8862,6 +9482,7 @@ void main() {
         if (currentView === 'customers') await fetchCustomerDirectory();
         else if (currentView === 'ledger') await fetchLedgerData(1);
         else if (currentView === 'reminders') await fetchEligibleReminders();
+        else if (currentView === 'verifications') await loadPaymentClaims();
         else if (currentView === 'inventory') await fetchInventoryProducts();
         else if (currentView === 'team') await fetchTeamMembers();
         else if (currentView === 'settings') {

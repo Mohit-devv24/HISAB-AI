@@ -104,6 +104,18 @@ def init_db(target_engine=None):
             if existing_reminder_cols and "delivery_details" not in existing_reminder_cols:
                 conn.execute(text("ALTER TABLE payment_reminders ADD COLUMN delivery_details VARCHAR(500)"))
 
+            # 4. Payment Verifications table migration
+            pv_result = conn.execute(text("PRAGMA table_info(payment_verifications)")).fetchall()
+            existing_pv_cols = [row[1] for row in pv_result]
+            if existing_pv_cols and "verified_amount_paise" not in existing_pv_cols:
+                conn.execute(text("ALTER TABLE payment_verifications ADD COLUMN verified_amount_paise INTEGER"))
+            if existing_pv_cols and "verified_amount" not in existing_pv_cols:
+                conn.execute(text("ALTER TABLE payment_verifications ADD COLUMN verified_amount FLOAT"))
+            if existing_pv_cols and "destination_upi_id" not in existing_pv_cols:
+                conn.execute(text("ALTER TABLE payment_verifications ADD COLUMN destination_upi_id VARCHAR(120) DEFAULT 'goyal.com@fam'"))
+            if existing_pv_cols and "customer_phone" not in existing_pv_cols:
+                conn.execute(text("ALTER TABLE payment_verifications ADD COLUMN customer_phone VARCHAR(20)"))
+
             conn.commit()
         except Exception:
             # In-memory database or tables handled cleanly by create_all

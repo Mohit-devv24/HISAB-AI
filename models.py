@@ -266,6 +266,56 @@ class AuditLog(Base):
     )
 
 
+class PaymentVerification(Base):
+    """
+    SQLAlchemy model recording payment claims received via UPI / WhatsApp screenshot.
+    Payment claims NEVER automatically modify the ledger until manually reviewed and approved.
+    Status transitions: PENDING -> APPROVED | REJECTED.
+    When APPROVED, creates exactly one JAMA transaction linked via resulting_transaction_id.
+    """
+    __tablename__ = "payment_verifications"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    shop_id = Column(Integer, nullable=False, index=True)
+    customer_name = Column(String(120), nullable=False, index=True)
+    customer_email = Column(String(120), nullable=True, index=True)
+    customer_phone = Column(String(20), nullable=True)
+    claimed_amount_paise = Column(Integer, nullable=False)
+    claimed_amount = Column(Float, nullable=False)
+    verified_amount_paise = Column(Integer, nullable=True)
+    verified_amount = Column(Float, nullable=True)
+    payment_method = Column(String(30), default="UPI")
+    destination_upi_id = Column(String(120), default="goyal.com@fam")
+    utr_number = Column(String(100), nullable=True, index=True)
+    customer_notes = Column(String(500), nullable=True)
+    status = Column(String(20), default="PENDING", index=True)  # PENDING, APPROVED, REJECTED
+    reviewed_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    review_notes = Column(String(500), nullable=True)
+    resulting_transaction_id = Column(Integer, ForeignKey("transactions.id"), nullable=True, unique=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=get_current_ist_time,
+        nullable=False,
+        index=True
+    )
+
+    def __init__(self, **kwargs):
+        if "claimed_amount" in kwargs and "claimed_amount_paise" not in kwargs:
+            kwargs["claimed_amount_paise"] = int(round(float(kwargs["claimed_amount"]) * 100))
+        elif "claimed_amount_paise" in kwargs and "claimed_amount" not in kwargs:
+            kwargs["claimed_amount"] = round(float(kwargs["claimed_amount_paise"]) / 100.0, 2)
+        elif "claimed_amount" in kwargs and "claimed_amount_paise" in kwargs:
+            kwargs["claimed_amount"] = round(float(kwargs["claimed_amount"]), 2)
+
+        if "verified_amount" in kwargs and kwargs["verified_amount"] is not None and "verified_amount_paise" not in kwargs:
+            kwargs["verified_amount_paise"] = int(round(float(kwargs["verified_amount"]) * 100))
+        elif "verified_amount_paise" in kwargs and kwargs["verified_amount_paise"] is not None and "verified_amount" not in kwargs:
+            kwargs["verified_amount"] = round(float(kwargs["verified_amount_paise"]) / 100.0, 2)
+
+        super().__init__(**kwargs)
+
+
 # ==========================================
 # Pydantic v2 Schemas
 # ==========================================
@@ -943,3 +993,82 @@ class InterestOverviewResponse(BaseModel):
     total_combined_due: float
     overdue_customers_count: int
     breakdowns: List[CustomerInterestBreakdown]
+
+
+# ==========================================
+# Payment Verification Schemas
+# ==========================================
+
+class PaymentClaimCreateRequest(BaseModel):
+    """Payload to register a payment claim for manual verification."""
+    customer_name: str = Field(..., min_length=1, max_length=120)
+    claimed_amount: float = Field(..., gt=0)
+    customer_email: Optional[str] = None
+    customer_phone: Optional[str] = None
+    payment_method: str = Field(default="UPI", max_length=30)
+    destination_upi_id: str = Field(default="goyal.com@fam", max_length=120)
+    utr_number: Optional[str] = Field(default=None, max_length=100)
+    customer_notes: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("customer_name")
+    @classmethod
+    def clean_name(cls, v: str) -> str:
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("Customer name cannot be empty.")
+        return cleaned
+
+    @field_validator("claimed_amount")
+    @classmethod
+    def validate_amount(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("Claimed amount must be greater than zero.")
+        return round(v, 2)
+
+
+class PaymentClaimApproveRequest(BaseModel):
+    """Payload to approve a payment claim and commit JAMA ledger transaction."""
+    verified_amount: Optional[float] = Field(default=None, gt=0)
+    customer_email: Optional[str] = None
+    notes: Optional[str] = Field(default=None, max_length=500)
+
+
+class PaymentClaimRejectRequest(BaseModel):
+    """Payload to reject a payment claim without touching ledger balance."""
+    notes: str = Field(..., min_length=1, max_length=500)
+
+
+class PaymentClaimResponse(BaseModel):
+    """Response model for a payment claim record."""
+    id: int
+    shop_id: int
+    customer_name: str
+    customer_email: Optional[str] = None
+    customer_phone: Optional[str] = None
+    claimed_amount: float
+    claimed_amount_paise: int
+    verified_amount: Optional[float] = None
+    verified_amount_paise: Optional[int] = None
+    payment_method: str
+    destination_upi_id: str
+    utr_number: Optional[str] = None
+    customer_notes: Optional[str] = None
+    status: str
+    reviewed_by_user_id: Optional[int] = None
+    reviewer_name: Optional[str] = None
+    reviewed_at: Optional[str] = None
+    review_notes: Optional[str] = None
+    resulting_transaction_id: Optional[int] = None
+    current_outstanding_balance: Optional[float] = None
+    created_at: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PaymentClaimListResponse(BaseModel):
+    """Response model for listing payment claims."""
+    total_count: int
+    pending_count: int
+    approved_count: int
+    rejected_count: int
+    claims: List[PaymentClaimResponse]

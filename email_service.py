@@ -9,6 +9,7 @@ import html
 import os
 import re
 import smtplib
+import urllib.parse
 from typing import Dict, Optional, Tuple
 from dotenv import load_dotenv
 
@@ -41,14 +42,29 @@ def generate_reminder_email_content(
     owner_name: Optional[str] = None,
     shop_phone: Optional[str] = None,
     custom_message: Optional[str] = None,
+    upi_id: str = "goyal.com@fam",
+    whatsapp_number: str = "916375940658",
 ) -> Dict[str, str]:
     """
     Generates structured HTML and plain-text email reminder content with
-    bilingual English/Hindi instructions and transparent ledger breakdown.
+    bilingual English/Hindi instructions, transparent ledger breakdown,
+    destination UPI ID, WhatsApp payment confirmation handoff button,
+    and a clear manual verification policy disclaimer.
     """
     owner_display = owner_name or "Store Owner"
     phone_display = f" | Phone: {shop_phone}" if shop_phone else ""
     subject = f"Payment Reminder: Outstanding balance at {shop_name} - ₹{total_balance:.2f}"
+
+    digits_phone = "".join(filter(str.isdigit, whatsapp_number)) or "916375940658"
+    wa_prefill = (
+        f"Hello, I have made a payment towards my HisabAI khata. "
+        f"Customer name: {customer_name}. "
+        f"Outstanding balance shown in reminder: ₹{total_balance:.2f}. "
+        f"Actual amount paid: [customer to confirm]. "
+        f"I am attaching my payment screenshot for verification. "
+        f"Please verify the transaction before updating my ledger."
+    )
+    wa_url = f"https://wa.me/{digits_phone}?text={urllib.parse.quote(wa_prefill)}"
 
     interest_row = ""
     interest_text = ""
@@ -92,7 +108,7 @@ def generate_reminder_email_content(
         Please review the account details below:
       </p>
 
-      <div style="background-color: #f7fafc; border-left: 4px solid #5B0E14; padding: 12px 16px; margin: 20px 0; border-radius: 4px;"><p style="margin: 0; color: #2d3748; font-weight: 600;">Payment Reminder</p><p style="margin: 6px 0 0; color: #475569;">Please clear your outstanding balance at your earliest convenience. If you have already paid, please contact the store.</p></div>
+      {custom_note_html}
 
       <table style="width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px; background: #fdfdfe; border-radius: 8px; border: 1px solid #edf2f7;">
         <tbody>
@@ -108,16 +124,47 @@ def generate_reminder_email_content(
         </tbody>
       </table>
 
-      <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px; margin: 20px 0; text-align: center;">
+      <!-- UPI Payment Details -->
+      <div style="background-color: #fdf4f4; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; margin: 20px 0; text-align: center;">
+        <p style="margin: 0 0 6px 0; font-size: 13px; font-weight: 600; color: #991b1b;">
+          Pay via UPI / यूपीआई से भुगतान करें:
+        </p>
+        <div style="font-family: SFMono-Regular, Consolas, Monaco, monospace; font-size: 17px; font-weight: 700; color: #5B0E14; background: #ffffff; border: 1px dashed #dc2626; padding: 8px 14px; border-radius: 6px; display: inline-block; user-select: all;">
+          {upi_id}
+        </div>
+        <p style="margin: 8px 0 0 0; font-size: 11px; color: #7f1d1d;">
+          You can use this UPI ID in Google Pay, PhonePe, Paytm, or BHIM.
+        </p>
+      </div>
+
+      <!-- WhatsApp Screenshot Button -->
+      <div style="text-align: center; margin: 24px 0 16px;">
+        <a href="{wa_url}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background-color: #25D366; color: #ffffff; text-decoration: none; font-weight: 700; font-size: 14px; padding: 12px 22px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.12);">
+          📲 Share Payment Screenshot on WhatsApp
+        </a>
+        <p style="margin: 6px 0 0; font-size: 11px; color: #64748b;">
+          Click above to open WhatsApp with your khata details prefilled.
+        </p>
+      </div>
+
+      <!-- Verification Policy Disclaimer -->
+      <div style="background-color: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #f59e0b; border-radius: 6px; padding: 12px 14px; margin: 20px 0;">
+        <p style="margin: 0; font-size: 12px; font-weight: 700; color: #92400e;">
+          ⚠️ Verification Policy / सत्यापन नियम:
+        </p>
+        <p style="margin: 4px 0 0; font-size: 11px; line-height: 1.5; color: #78350f;">
+          Payment will be recorded in your khata <strong>only after manual verification</strong> by the shopkeeper against bank/UPI records. Sending a screenshot or opening WhatsApp does not automatically credit your account.
+        </p>
+        <p style="margin: 4px 0 0; font-size: 11px; line-height: 1.4; color: #78350f; font-style: italic;">
+          दुकानदार द्वारा बैंक/UPI खाते में राशि का सत्यापन करने के बाद ही यह खाता बही (Ledger) में जमा (JAMA) के रूप में दर्ज होगा।
+        </p>
+      </div>
+
+      <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px; margin: 20px 0; text-align: center;">
         <p style="margin: 0; color: #166534; font-size: 13px; font-weight: 500;">
           कृपया शीघ्रातिशीघ्र बकाया राशि का भुगतान करें। धन्यवाद!
         </p>
       </div>
-
-      <p style="font-size: 13px; color: #64748b; line-height: 1.5;">
-        You can settle this amount via UPI, cash, or direct store visit.
-        If you have already made the payment, please contact us to update your records.
-      </p>
 
       <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0 16px;">
       
@@ -138,6 +185,11 @@ def generate_reminder_email_content(
         f"Principal Udhaar: ₹{principal_balance:.2f}\n"
         f"{interest_text}"
         f"Total Payable Amount: ₹{total_balance:.2f}\n\n"
+        f"Pay via UPI ID: {upi_id}\n\n"
+        f"Share payment screenshot on WhatsApp:\n{wa_url}\n\n"
+        f"⚠️ VERIFICATION POLICY:\n"
+        f"Payment will be recorded in your khata ONLY after manual verification by the shopkeeper against bank/UPI records. Sending a screenshot or opening WhatsApp does not automatically credit your account.\n"
+        f"दुकानदार द्वारा बैंक/UPI खाते में राशि का सत्यापन करने के बाद ही यह खाता बही में जमा (JAMA) होगा।\n\n"
         f"कृपया शीघ्रातिशीघ्र बकाया राशि का भुगतान करें।\n\n"
         f"Store: {shop_name}\n"
         f"Owner: {owner_display}{phone_display}\n"
