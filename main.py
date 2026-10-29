@@ -715,13 +715,11 @@ def list_customers(
     search: Optional[str] = None,
     q: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user_optional)
+    current_user: User = Depends(require_current_user)
 ):
     query_term = (search or q or "").strip().lower()
-    tx_query = db.query(Transaction)
-    shop_id = get_effective_shop_id(current_user) if current_user else None
-    if shop_id:
-        tx_query = tx_query.filter(Transaction.user_id == shop_id)
+    shop_id = get_effective_shop_id(current_user)
+    tx_query = db.query(Transaction).filter(Transaction.user_id == shop_id)
     all_txs = tx_query.order_by(Transaction.timestamp.asc()).all()
     cust_data: Dict[str, dict] = {}
 
@@ -1229,7 +1227,7 @@ def retry_transaction_receipt(
 )
 def get_daily_summary(
     db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user_optional)
+    current_user: User = Depends(require_current_user)
 ):
     """
     Computes today's financial metrics strictly within Asia/Kolkata (IST) day boundaries:
@@ -1251,9 +1249,8 @@ def get_daily_summary(
     query = db.query(Transaction).filter(
         Transaction.timestamp >= start_of_today,
         Transaction.timestamp < start_of_tomorrow,
+        Transaction.user_id == shop_id,
     )
-    if shop_id:
-        query = query.filter(Transaction.user_id == shop_id)
 
     today_transactions = (
         query

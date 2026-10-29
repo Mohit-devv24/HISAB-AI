@@ -16,13 +16,14 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from database import Base, get_db
-from main import app
+from main import app, get_current_user_optional
 from models import (
     ExtractedTransaction,
     KOLKATA_TZ,
     PendingOperationData,
     Transaction,
     TransactionType,
+    User,
     VoiceAssistantRequest,
     VoiceAssistantResponse,
     VoiceIntentResult,
@@ -273,46 +274,68 @@ class TestHisabAIFullSuite(unittest.TestCase):
 
     # 5. Daily Summary (GET /api/summary) & IST Day Boundaries
     def test_daily_summary_and_ist_day_boundaries(self):
-        """Verifies today's summary strictly adheres to Asia/Kolkata business date."""
+        """Verifies today's summary for an authenticated shop and IST boundaries."""
         db = TestingSession()
         now_ist = get_current_ist_time()
 
-        # Transaction 1: Today UDHAAR (₹300.25)
+        owner = User(
+            username="summary_test_owner",
+            shop_name="Summary Test Shop",
+        )
+        db.add(owner)
+        db.flush()
+        owner_id = owner.id
+
         tx1 = Transaction(
+            user_id=owner_id,
             customer_name="Customer A",
             amount_paise=30025,
             transaction_type=TransactionType.UDHAAR,
-            timestamp=now_ist
+            timestamp=now_ist,
         )
-        # Transaction 2: Today JAMA (₹100.25)
         tx2 = Transaction(
+            user_id=owner_id,
             customer_name="Customer A",
             amount_paise=10025,
             transaction_type=TransactionType.JAMA,
-            timestamp=now_ist
+            timestamp=now_ist,
         )
-        # Transaction 3: Yesterday transaction (must NOT be counted in today's summary)
-        yesterday_ist = now_ist - timedelta(days=1)
         tx_old = Transaction(
+            user_id=owner_id,
             customer_name="Customer B",
             amount_paise=99900,
             transaction_type=TransactionType.UDHAAR,
-            timestamp=yesterday_ist
+            timestamp=now_ist - timedelta(days=1),
         )
+
         db.add_all([tx1, tx2, tx_old])
         db.commit()
         db.close()
 
-        resp = client.get("/api/summary")
+        test_user = User(
+            id=owner_id,
+            username="summary_test_owner",
+            shop_name="Summary Test Shop",
+        )
+        with patch.dict(
+            app.dependency_overrides,
+            {get_current_user_optional: lambda: test_user},
+        ):
+            resp = client.get("/api/summary")
+
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
-
         self.assertEqual(data["date"], now_ist.strftime("%Y-%m-%d"))
         self.assertEqual(data["total_udhaar_today"], 300.25)
         self.assertEqual(data["total_jama_today"], 100.25)
-        self.assertEqual(data["net_today"], 200.0)  # 300.25 - 100.25
+        self.assertEqual(data["net_today"], 200.0)
         self.assertEqual(data["transaction_count"], 2)
         self.assertEqual(len(data["transactions"]), 2)
+
+    def test_daily_summary_requires_authentication(self):
+        """Unauthenticated requests must not expose financial summaries."""
+        resp = client.get("/api/summary")
+        self.assertEqual(resp.status_code, 401)
 
     # 6. Customer Ledger (GET /api/customer/{name})
     def test_customer_ledger_case_insensitivity_and_spaces(self):
@@ -794,32 +817,68 @@ class TestHisabAIFullSuite(unittest.TestCase):
 
     # 12. Customer Directory & Historical Ledger Tests
     def test_customer_directory_and_search(self):
-        """Verifies customer directory calculation and search filtering."""
+        """Checks customer totals and search for an authenticated shop."""
         db = TestingSession()
         now_ist = get_current_ist_time()
+        owner = User(
+            username="customer_directory_test",
+            shop_name="Customer Directory Test",
+        )
+        db.add(owner)
+        db.flush()
+        owner_id = owner.id
+
         db.add_all([
-            Transaction(customer_name="Suresh Kumar", amount_paise=100000, transaction_type=TransactionType.UDHAAR, timestamp=now_ist),
-            Transaction(customer_name="Suresh Kumar", amount_paise=30000, transaction_type=TransactionType.JAMA, timestamp=now_ist),
-            Transaction(customer_name="Mahesh Ji", amount_paise=50000, transaction_type=TransactionType.UDHAAR, timestamp=now_ist)
+            Transaction(
+                user_id=owner_id, customer_name="Suresh Kumar",
+                amount_paise=100000, transaction_type=TransactionType.UDHAAR,
+                timestamp=now_ist,
+            ),
+            Transaction(
+                user_id=owner_id, customer_name="Suresh Kumar",
+                amount_paise=30000, transaction_type=TransactionType.JAMA,
+                timestamp=now_ist,
+            ),
+            Transaction(
+                user_id=owner_id, customer_name="Mahesh Ji",
+                amount_paise=50000, transaction_type=TransactionType.UDHAAR,
+                timestamp=now_ist,
+            ),
         ])
         db.commit()
         db.close()
 
-        # Full directory
-        resp = client.get("/api/customers")
-        self.assertEqual(resp.status_code, 200)
-        data = resp.json()
-        self.assertEqual(data["total_customers"], 2)
-        # Total debt: Suresh (700) + Mahesh (500) = 1200
-        self.assertEqual(data["total_outstanding_debt"], 1200.0)
+        test_user = User(
+            id=owner_id,
+            username="customer_directory_test",
+            shop_name="Customer Directory Test",
+        )
+        with patch.dict(
+            app.dependency_overrides,
+            {get_current_user_optional: lambda: test_user},
+        ):
+            resp = client.get("/api/customers")
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertEqual(data["total_customers"], 2)
+            self.assertEqual(data["total_outstanding_debt"], 1200.0)
 
-        # Search filter
-        resp_search = client.get("/api/customers?search=Suresh")
-        self.assertEqual(resp_search.status_code, 200)
-        search_data = resp_search.json()
-        self.assertEqual(search_data["total_customers"], 1)
-        self.assertEqual(search_data["customers"][0]["customer_name"], "Suresh Kumar")
-        self.assertEqual(search_data["customers"][0]["outstanding_balance"], 700.0)
+            resp_search = client.get("/api/customers?search=Suresh")
+            self.assertEqual(resp_search.status_code, 200)
+            search_data = resp_search.json()
+            self.assertEqual(search_data["total_customers"], 1)
+            self.assertEqual(
+                search_data["customers"][0]["customer_name"], "Suresh Kumar"
+            )
+            self.assertEqual(
+                search_data["customers"][0]["outstanding_balance"], 700.0
+            )
+
+    def test_customer_directory_requires_authentication(self):
+        """Unauthenticated requests cannot read customer financial data."""
+        unauthenticated_client = TestClient(app)
+        response = unauthenticated_client.get("/api/customers")
+        self.assertEqual(response.status_code, 401)
 
     def test_ledger_history_and_filters(self):
         """Verifies paginated historical ledger with running balances and presets."""
@@ -945,23 +1004,45 @@ class TestHisabAIFullSuite(unittest.TestCase):
         db.close()
 
     def test_ledger_and_customer_parameter_aliases(self):
-        """Verifies parameter aliases ?q= and ?customer= / ?type= work smoothly."""
+        """Checks customer search and ledger aliases for an authenticated shop."""
         db = TestingSession()
         now_ist = get_current_ist_time()
-        db.add(Transaction(customer_name="Sita Ram", amount_paise=10000, transaction_type=TransactionType.UDHAAR, timestamp=now_ist))
+        owner = User(
+            username="customer_alias_test",
+            shop_name="Customer Alias Test",
+        )
+        db.add(owner)
+        db.flush()
+        owner_id = owner.id
+        db.add(Transaction(
+            user_id=owner_id,
+            customer_name="Sita Ram",
+            amount_paise=10000,
+            transaction_type=TransactionType.UDHAAR,
+            timestamp=now_ist,
+        ))
         db.commit()
         db.close()
 
-        # Customer search using ?q=
-        res1 = client.get("/api/customers?q=sita")
-        self.assertEqual(res1.status_code, 200)
-        self.assertGreaterEqual(res1.json()["total_customers"], 1)
+        test_user = User(
+            id=owner_id,
+            username="customer_alias_test",
+            shop_name="Customer Alias Test",
+        )
+        with patch.dict(
+            app.dependency_overrides,
+            {get_current_user_optional: lambda: test_user},
+        ):
+            res1 = client.get("/api/customers?q=sita")
+            self.assertEqual(res1.status_code, 200)
+            self.assertGreaterEqual(res1.json()["total_customers"], 1)
 
-        # Ledger query using ?customer= and ?type=
-        res2 = client.get("/api/ledger?customer=Sita%20Ram&type=UDHAAR")
-        self.assertEqual(res2.status_code, 200)
-        self.assertGreaterEqual(res2.json()["total_records"], 1)
-        self.assertEqual(res2.json()["transactions"][0]["customer_name"], "Sita Ram")
+            res2 = client.get("/api/ledger?customer=Sita%20Ram&type=UDHAAR")
+            self.assertEqual(res2.status_code, 200)
+            self.assertGreaterEqual(res2.json()["total_records"], 1)
+            self.assertEqual(
+                res2.json()["transactions"][0]["customer_name"], "Sita Ram"
+            )
 
     # 12. Authentication Upgrades, Google OAuth, & Multi-Tenancy Isolation Tests
     def test_signup_with_confirm_password_success(self):
