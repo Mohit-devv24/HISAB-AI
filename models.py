@@ -7,6 +7,7 @@ All timestamps and business boundaries strictly respect Asia/Kolkata (IST).
 from datetime import datetime, timezone
 import enum
 import hashlib
+import re
 import secrets
 from typing import List, Literal, Optional
 from zoneinfo import ZoneInfo
@@ -107,6 +108,7 @@ class Transaction(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     customer_name = Column(String(120), nullable=False, index=True)
     customer_phone = Column(String(20), nullable=True)
+    customer_email = Column(String(120), nullable=True, index=True)
     notes = Column(String(255), nullable=True)
     # Primary authoritative monetary storage is integer paise (1 Rupee = 100 Paise)
     amount_paise = Column(Integer, nullable=False)
@@ -162,6 +164,31 @@ class PaymentReminder(Base):
         nullable=False,
         index=True
     )
+
+
+class TransactionReceipt(Base):
+    """
+    SQLAlchemy model recording transaction receipts dispatched via email.
+    Supports asynchronous dispatch, status tracking (PENDING, SENT, FAILED),
+    retry capability, and audit log.
+    """
+    __tablename__ = "transaction_receipts"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    shop_id = Column(Integer, nullable=False, index=True)
+    transaction_id = Column(Integer, ForeignKey("transactions.id"), nullable=False, index=True)
+    customer_name = Column(String(120), nullable=False, index=True)
+    customer_email = Column(String(120), nullable=False)
+    status = Column(String(30), default="PENDING", index=True)  # PENDING, SENT, FAILED
+    attempts = Column(Integer, default=0)
+    last_error = Column(String(500), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=get_current_ist_time,
+        nullable=False,
+        index=True
+    )
+    sent_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class Product(Base):
@@ -285,6 +312,7 @@ class TransactionCreateRequest(BaseModel):
     Supports either confirmed structured fields or raw text fallback.
     """
     customer_name: Optional[str] = Field(None, min_length=1, max_length=120)
+    customer_email: Optional[str] = Field(None, max_length=120)
     amount: Optional[float] = Field(None, gt=0, le=10_000_000)
     transaction_type: Optional[Literal["UDHAAR", "JAMA"]] = None
     text: Optional[str] = Field(None, min_length=2, max_length=500)
@@ -304,6 +332,10 @@ class TransactionCreateRequest(BaseModel):
             self.amount = round(float(self.amount), 2)
         if self.customer_name is not None:
             self.customer_name = " ".join(self.customer_name.strip().split())
+        if self.customer_email is not None:
+            self.customer_email = self.customer_email.strip()
+            if self.customer_email and not re.match(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$", self.customer_email):
+                raise ValueError(f"Invalid email address format: '{self.customer_email}'.")
         return self
 
 
@@ -313,6 +345,7 @@ class TransactionResponse(BaseModel):
 
     id: int
     customer_name: str
+    customer_email: Optional[str] = None
     amount: float
     transaction_type: TransactionType
     timestamp: datetime
@@ -324,6 +357,22 @@ class TransactionResponse(BaseModel):
         if isinstance(v, (int, float)):
             return round(float(v), 2)
         return float(v)
+
+
+class ReceiptResponse(BaseModel):
+    """Status representation of an automatic transaction receipt."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    shop_id: int
+    transaction_id: int
+    customer_name: str
+    customer_email: str
+    status: str
+    attempts: int
+    last_error: Optional[str] = None
+    created_at: datetime
+    sent_at: Optional[datetime] = None
 
 
 class DailySummaryResponse(BaseModel):
@@ -378,6 +427,8 @@ class VoiceIntentType(str, enum.Enum):
     NAVIGATE_VIEW = "NAVIGATE_VIEW"
     PREPARE_REMINDER = "PREPARE_REMINDER"
     PREPARE_RECEIPT = "PREPARE_RECEIPT"
+    PROVIDE_EMAIL = "PROVIDE_EMAIL"
+    UPDATE_CUSTOMER_EMAIL = "UPDATE_CUSTOMER_EMAIL"
     UNKNOWN = "UNKNOWN"
 
 
@@ -385,6 +436,7 @@ class VoiceIntentResult(BaseModel):
     """Structured intent & entity extraction from natural speech."""
     intent: VoiceIntentType
     customer_name: Optional[str] = None
+    customer_email: Optional[str] = None
     amount: Optional[float] = None
     transaction_type: Optional[Literal["UDHAAR", "JAMA"]] = None
     date_filter: Optional[str] = None  # e.g., "today", "yesterday", "last_7_days", "this_month"
@@ -411,16 +463,25 @@ class VoiceIntentResult(BaseModel):
             return cleaned if cleaned else None
         return None
 
+    @field_validator("customer_email")
+    @classmethod
+    def clean_email_field(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            cleaned = v.strip()
+            return cleaned if cleaned else None
+        return None
+
 
 class PendingOperationData(BaseModel):
     """Details of an uncommitted transaction awaiting explicit user confirmation."""
     operation_id: str
     customer_name: str
+    customer_email: Optional[str] = None
     amount: float
     transaction_type: Literal["UDHAAR", "JAMA"]
     created_at: str
     expires_at: str
-    status: Literal["pending", "committed", "cancelled", "expired"] = "pending"
+    status: Literal["pending", "committed", "cancelled", "expired", "waiting_for_email"] = "pending"
 
 
 class VoiceAssistantRequest(BaseModel):

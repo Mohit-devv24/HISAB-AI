@@ -21,10 +21,15 @@ import uuid
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
-from email_service import generate_reminder_email_content, is_valid_email, send_brevo_email
+from email_service import (
+    generate_reminder_email_content,
+    generate_transaction_receipt_email_content,
+    is_valid_email,
+    send_brevo_email,
+)
 from interest_service import calculate_customer_interest
 
-from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Query, Request, status
+from fastapi import BackgroundTasks, Cookie, Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -79,6 +84,7 @@ from models import (
     RecordReminderRequest,
     ReminderCustomerItem,
     ReminderHistoryItem,
+    ReceiptResponse,
     ShopProfileResponse,
     ShopProfileUpdateRequest,
     StockMovement,
@@ -89,6 +95,7 @@ from models import (
     TeamRoleUpdateRequest,
     Transaction,
     TransactionCreateRequest,
+    TransactionReceipt,
     TransactionResponse,
     TransactionSearchItem,
     TransactionSearchResponse,
@@ -166,11 +173,13 @@ def create_pending_operation(
     customer_name: str,
     amount: float,
     transaction_type: str,
+    customer_email: Optional[str] = None,
     session_id: Optional[str] = None,
     user_id: Optional[int] = None,
-    language: Optional[str] = "hinglish"
+    language: Optional[str] = "hinglish",
+    status: str = "pending"
 ) -> PendingOperationData:
-    """Creates an uncommitted pending operation awaiting explicit user confirmation."""
+    """Creates an uncommitted pending operation awaiting explicit user confirmation or customer email."""
     cleanup_expired_operations()
     op_id = str(uuid.uuid4())
     now = get_current_ist_time()
@@ -181,13 +190,14 @@ def create_pending_operation(
         "user_id": user_id,
         "language": language or "hinglish",
         "customer_name": customer_name,
+        "customer_email": customer_email,
         "amount": round(float(amount), 2),
         "amount_paise": int(round(float(amount) * 100)),
         "transaction_type": transaction_type.upper(),
         "created_at": now.strftime("%Y-%m-%d %H:%M:%S IST"),
         "expires_at": expires_dt.strftime("%Y-%m-%d %H:%M:%S IST"),
         "expires_dt": expires_dt,
-        "status": "pending",
+        "status": status,
         "session_id": session_id or "default",
         "committed_tx_id": None
     }
@@ -196,12 +206,82 @@ def create_pending_operation(
     return PendingOperationData(
         operation_id=op_id,
         customer_name=customer_name,
+        customer_email=customer_email,
         amount=round(float(amount), 2),
         transaction_type=transaction_type.upper(),
         created_at=op_record["created_at"],
         expires_at=op_record["expires_at"],
-        status="pending"
+        status=status
     )
+
+
+def dispatch_receipt_email_job(receipt_id: int):
+    """
+    Background worker task to dispatch transaction receipt via Brevo SMTP
+    without blocking the primary HTTP request or holding DB locks.
+    """
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        receipt = db.query(TransactionReceipt).filter(TransactionReceipt.id == receipt_id).first()
+        if not receipt:
+            logger.warning(f"Receipt job #{receipt_id} not found for dispatch.")
+            return
+
+        if receipt.status == "SENT":
+            return
+
+        tx = db.query(Transaction).filter(Transaction.id == receipt.transaction_id).first()
+        if not tx:
+            receipt.status = "FAILED"
+            receipt.last_error = "Associated transaction not found."
+            db.commit()
+            return
+
+        shop_user = db.query(User).filter(User.id == receipt.shop_id).first()
+        shop_name = (shop_user.shop_name if shop_user and shop_user.shop_name else "HisabAI Khata")
+        owner_name = (shop_user.owner_name if shop_user and shop_user.owner_name else (shop_user.username if shop_user else "Store Owner"))
+        shop_phone = (shop_user.phone if shop_user and shop_user.phone else None)
+
+        receipt.attempts += 1
+        ts_str = tx.timestamp.astimezone(KOLKATA_TZ).strftime("%d %b %Y, %I:%M %p IST") if tx.timestamp else get_current_ist_time().strftime("%d %b %Y, %I:%M %p IST")
+
+        content = generate_transaction_receipt_email_content(
+            customer_name=tx.customer_name,
+            amount=float(tx.amount if tx.amount is not None else round(tx.amount_paise / 100.0, 2)),
+            transaction_type=tx.transaction_type.value,
+            transaction_id=tx.id,
+            timestamp_str=ts_str,
+            shop_name=shop_name,
+            owner_name=owner_name,
+            shop_phone=shop_phone,
+            notes=tx.notes
+        )
+
+        ok, msg = send_brevo_email(
+            to_email=receipt.customer_email,
+            subject=content["subject"],
+            html_content=content["html"],
+            text_content=content["text"],
+            sender_name=shop_name
+        )
+
+        if ok:
+            receipt.status = "SENT"
+            receipt.sent_at = get_current_ist_time()
+            receipt.last_error = None
+            logger.info(f"Receipt #{receipt.id} for Transaction #{tx.id} sent successfully to {receipt.customer_email}.")
+        else:
+            receipt.status = "FAILED"
+            receipt.last_error = msg[:500]
+            logger.warning(f"Receipt #{receipt.id} delivery failed: {msg}")
+
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.error(f"Error in dispatch_receipt_email_job({receipt_id}): {exc}", exc_info=True)
+    finally:
+        db.close()
 
 
 # ==========================================
@@ -848,6 +928,7 @@ def parse_transaction(payload: ParseInputRequest):
 )
 def create_transaction(
     payload: TransactionCreateRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional)
 ):
@@ -857,6 +938,7 @@ def create_transaction(
     Accepts either confirmed structured fields (customer_name, amount, transaction_type)
     or a raw 'text' string (which parses first for backwards compatibility).
     Monetary amounts are stored as integer paise to prevent floating point inaccuracies.
+    Enforces mandatory customer email and triggers automatic receipt dispatch.
     """
     customer_name = payload.customer_name
     amount = payload.amount
@@ -923,6 +1005,53 @@ def create_transaction(
     amount_paise = int(round(amount_float * 100))
     shop_id = get_effective_shop_id(current_user) if current_user else None
 
+    # Mandatory Customer Email Validation & Resolution
+    clean_email = payload.customer_email.strip() if payload.customer_email else None
+    if not clean_email and payload.text:
+        clean_email = ai_service.extract_email_from_text(payload.text)
+
+    if clean_email:
+        if not is_valid_email(clean_email):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid email address '{clean_email}'. Please provide a valid customer email."
+            )
+    else:
+        # Check existing registered email for this customer in this shop
+        existing_tx_email = (
+            db.query(Transaction.customer_email)
+            .filter(
+                Transaction.user_id == shop_id,
+                func.lower(Transaction.customer_name) == clean_name.lower(),
+                Transaction.customer_email != None,
+                Transaction.customer_email != ""
+            )
+            .order_by(Transaction.id.desc())
+            .first()
+        )
+        if existing_tx_email and existing_tx_email[0]:
+            clean_email = existing_tx_email[0]
+        else:
+            existing_rem_email = (
+                db.query(PaymentReminder.customer_email)
+                .filter(
+                    PaymentReminder.shop_id == shop_id,
+                    func.lower(PaymentReminder.customer_name) == clean_name.lower(),
+                    PaymentReminder.customer_email != None,
+                    PaymentReminder.customer_email != ""
+                )
+                .order_by(PaymentReminder.id.desc())
+                .first()
+            )
+            if existing_rem_email and existing_rem_email[0]:
+                clean_email = existing_rem_email[0]
+
+    if not clean_email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Customer email is mandatory before committing a transaction for '{clean_name}'. Please provide a valid email."
+        )
+
     # Idempotency / Double-click guard: check for identical transaction in the last 4 seconds
     cutoff_time = get_current_ist_time() - timedelta(seconds=4)
     recent_dup = (
@@ -947,6 +1076,7 @@ def create_transaction(
         db_transaction = Transaction(
             user_id=shop_id,
             customer_name=clean_name,
+            customer_email=clean_email,
             amount_paise=amount_paise,
             amount=round(amount_float, 2),
             transaction_type=tx_type,
@@ -956,9 +1086,31 @@ def create_transaction(
         db.commit()
         db.refresh(db_transaction)
 
+        # Create transactional receipt record in PENDING state
+        effective_shop = shop_id or (current_user.id if current_user else 1)
+        receipt_job = TransactionReceipt(
+            shop_id=effective_shop,
+            transaction_id=db_transaction.id,
+            customer_name=db_transaction.customer_name,
+            customer_email=clean_email,
+            status="PENDING",
+            attempts=0,
+            created_at=get_current_ist_time()
+        )
+        db.add(receipt_job)
+        db.commit()
+        db.refresh(receipt_job)
+
+        # Trigger reliable async email dispatch
+        if background_tasks:
+            background_tasks.add_task(dispatch_receipt_email_job, receipt_job.id)
+        else:
+            import threading
+            threading.Thread(target=dispatch_receipt_email_job, args=(receipt_job.id,), daemon=True).start()
+
         logger.info(
             f"Recorded Transaction #{db_transaction.id}: {db_transaction.customer_name} "
-            f"- ₹{db_transaction.amount:.2f} ({db_transaction.transaction_type.value}) [user={db_transaction.user_id}]"
+            f"- ₹{db_transaction.amount:.2f} ({db_transaction.transaction_type.value}) [email={clean_email}]"
         )
         return db_transaction
     except Exception as db_err:
@@ -978,10 +1130,90 @@ def create_transaction(
 )
 def create_transaction_alias(
     payload: TransactionCreateRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional)
 ):
-    return create_transaction(payload=payload, db=db, current_user=current_user)
+    return create_transaction(payload=payload, background_tasks=background_tasks, db=db, current_user=current_user)
+
+
+@app.get(
+    "/api/transactions/{transaction_id}/receipt",
+    response_model=ReceiptResponse,
+    summary="Get automatic email receipt delivery status for a transaction"
+)
+def get_transaction_receipt(
+    transaction_id: int,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
+):
+    tx = db.query(Transaction).filter(Transaction.id == transaction_id).first()
+    if not tx:
+        raise HTTPException(status_code=404, detail="Transaction not found.")
+
+    shop_id = get_effective_shop_id(current_user) if current_user else None
+    if shop_id and tx.user_id and tx.user_id != shop_id:
+        raise HTTPException(status_code=403, detail="Unauthorized access to this transaction receipt.")
+
+    receipt = (
+        db.query(TransactionReceipt)
+        .filter(TransactionReceipt.transaction_id == transaction_id)
+        .order_by(TransactionReceipt.id.desc())
+        .first()
+    )
+    if not receipt:
+        raise HTTPException(status_code=404, detail="No receipt found for this transaction.")
+
+    return receipt
+
+
+@app.post(
+    "/api/transactions/{transaction_id}/receipt/retry",
+    response_model=ReceiptResponse,
+    summary="Retry email dispatch for a failed transaction receipt without duplicating financial records"
+)
+def retry_transaction_receipt(
+    transaction_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
+):
+    tx = db.query(Transaction).filter(Transaction.id == transaction_id).first()
+    if not tx:
+        raise HTTPException(status_code=404, detail="Transaction not found.")
+
+    shop_id = get_effective_shop_id(current_user) if current_user else None
+    if shop_id and tx.user_id and tx.user_id != shop_id:
+        raise HTTPException(status_code=403, detail="Unauthorized access to this transaction.")
+
+    receipt = (
+        db.query(TransactionReceipt)
+        .filter(TransactionReceipt.transaction_id == transaction_id)
+        .order_by(TransactionReceipt.id.desc())
+        .first()
+    )
+    if not receipt:
+        if not tx.customer_email:
+            raise HTTPException(status_code=400, detail="Cannot send receipt: Customer email is missing on transaction.")
+        receipt = TransactionReceipt(
+            shop_id=tx.user_id or 1,
+            transaction_id=tx.id,
+            customer_name=tx.customer_name,
+            customer_email=tx.customer_email,
+            status="PENDING",
+            attempts=0,
+            created_at=get_current_ist_time()
+        )
+        db.add(receipt)
+        db.commit()
+        db.refresh(receipt)
+
+    receipt.status = "PENDING"
+    db.commit()
+    db.refresh(receipt)
+
+    background_tasks.add_task(dispatch_receipt_email_job, receipt.id)
+    return receipt
 
 
 @app.get(
@@ -1371,7 +1603,42 @@ def handle_voice_assistant(
             reply = "Confirmation ka samay beet gaya hai. Kripya transaction dobara bolein."
             return VoiceAssistantResponse(reply_message=reply, action_taken="expired", requires_confirmation=False)
 
-        # Commit exactly one transaction in integer paise
+        # Mandatory Email Guard: Cannot confirm if waiting for email or email is missing
+        customer_email = op.get("customer_email")
+        if not customer_email or op.get("status") == "waiting_for_email":
+            # Check DB once more for registered customer email
+            existing_email_row = (
+                db.query(Transaction.customer_email)
+                .filter(
+                    Transaction.user_id == (op.get("user_id") or auth_user_id),
+                    func.lower(Transaction.customer_name) == op["customer_name"].lower(),
+                    Transaction.customer_email != None,
+                    Transaction.customer_email != ""
+                )
+                .order_by(Transaction.id.desc())
+                .first()
+            )
+            if existing_email_row and existing_email_row[0]:
+                customer_email = existing_email_row[0]
+                op["customer_email"] = customer_email
+                op["status"] = "pending"
+            else:
+                op["status"] = "waiting_for_email"
+                is_en = (op.get("language") == "english")
+                reply = (
+                    f"{op['customer_name']}'s email ID is required before saving. Please speak or type their email."
+                    if is_en else
+                    f"{op['customer_name']} ki email ID registered nahi hai. Kripya pehle email ID bataiye."
+                )
+                LAST_SESSION_REPLIES[session_id] = reply
+                return VoiceAssistantResponse(
+                    reply_message=reply,
+                    action_taken="waiting_for_customer_email",
+                    requires_confirmation=False,
+                    pending_operation=PendingOperationData(**op)
+                )
+
+        # Commit exactly one transaction in integer paise with customer email
         amount_paise = int(round(op["amount"] * 100))
         tx_type = TransactionType(op["transaction_type"])
 
@@ -1379,6 +1646,7 @@ def handle_voice_assistant(
             db_tx = Transaction(
                 user_id=op.get("user_id") or auth_user_id,
                 customer_name=op["customer_name"],
+                customer_email=customer_email,
                 amount_paise=amount_paise,
                 amount=op["amount"],
                 transaction_type=tx_type,
@@ -1388,16 +1656,35 @@ def handle_voice_assistant(
             db.commit()
             db.refresh(db_tx)
 
+            # Create transactional receipt job
+            effective_shop = op.get("user_id") or auth_user_id or 1
+            receipt_job = TransactionReceipt(
+                shop_id=effective_shop,
+                transaction_id=db_tx.id,
+                customer_name=db_tx.customer_name,
+                customer_email=customer_email,
+                status="PENDING",
+                attempts=0,
+                created_at=get_current_ist_time()
+            )
+            db.add(receipt_job)
+            db.commit()
+            db.refresh(receipt_job)
+
+            # Asynchronously dispatch receipt email
+            import threading
+            threading.Thread(target=dispatch_receipt_email_job, args=(receipt_job.id,), daemon=True).start()
+
             op["status"] = "committed"
             op["committed_tx_id"] = db_tx.id
 
             is_en = (op.get("language") == "english")
             if is_en:
                 en_type = "credit" if tx_type == TransactionType.UDHAAR else "payment"
-                reply = f"Recorded ₹{op['amount']:.2f} {en_type} for {op['customer_name']} successfully."
+                reply = f"Recorded ₹{op['amount']:.2f} {en_type} for {op['customer_name']} successfully. Receipt sent to {customer_email}."
             else:
                 type_label = "udhaar" if tx_type == TransactionType.UDHAAR else "jama"
-                reply = f"{op['customer_name']} ke khate mein ₹{op['amount']:.2f} {type_label} safaltapoorvak save kar diye gaye hain."
+                reply = f"{op['customer_name']} ke khate mein ₹{op['amount']:.2f} {type_label} safaltapoorvak save kar diye gaye hain aur receipt dispatch kar di gayi hai."
             LAST_SESSION_REPLIES[session_id] = reply
 
             return VoiceAssistantResponse(
@@ -1405,7 +1692,7 @@ def handle_voice_assistant(
                 action_taken="committed_transaction",
                 requires_confirmation=False,
                 pending_operation=PendingOperationData(**op),
-                data={"transaction_id": db_tx.id}
+                data={"transaction_id": db_tx.id, "receipt_id": receipt_job.id}
             )
         except Exception as exc:
             db.rollback()
@@ -1434,6 +1721,41 @@ def handle_voice_assistant(
         reply = "Assistant band kar diya gaya hai. Jab zaroorat ho, 'Suno Hisab' bolein ya mic dabayein."
         return VoiceAssistantResponse(reply_message=reply, action_taken="stopped", requires_confirmation=False)
 
+    # 4B. Check if active pending operation is waiting for customer email
+    extracted_email = ai_service.extract_email_from_text(raw_text)
+    if op_id and op_id in PENDING_VOICE_OPERATIONS and PENDING_VOICE_OPERATIONS[op_id].get("status") == "waiting_for_email":
+        op = PENDING_VOICE_OPERATIONS[op_id]
+        if extracted_email and is_valid_email(extracted_email):
+            op["customer_email"] = extracted_email
+            op["status"] = "pending"
+            is_en = (op.get("language") == "english")
+            if is_en:
+                en_type = "credit" if op["transaction_type"] == "UDHAAR" else "payment"
+                reply = f"{op['customer_name']} ₹{op['amount']:.2f} {en_type}, email {extracted_email}. Should I save this entry?"
+            else:
+                type_label = "udhaar" if op["transaction_type"] == "UDHAAR" else "jama"
+                reply = f"{op['customer_name']} ka ₹{op['amount']:.2f} {type_label}, email {extracted_email}. Kya main entry save kar doon?"
+            LAST_SESSION_REPLIES[session_id] = reply
+            return VoiceAssistantResponse(
+                reply_message=reply,
+                action_taken="email_collected_awaiting_confirmation",
+                requires_confirmation=True,
+                pending_operation=PendingOperationData(**op)
+            )
+        else:
+            is_en = (op.get("language") == "english")
+            reply = (
+                f"Invalid email format. Please say or type a valid email for {op['customer_name']}."
+                if is_en else
+                f"Email ID samajh nahi aayi ya format sahi nahi hai. Kripya {op['customer_name']} ki valid email ID bataiye ya type kijiye."
+            )
+            return VoiceAssistantResponse(
+                reply_message=reply,
+                action_taken="waiting_for_customer_email",
+                requires_confirmation=False,
+                pending_operation=PendingOperationData(**op)
+            )
+
     # 5. Extract Intent from Natural Voice Command
     context_data = None
     if op_id and op_id in PENDING_VOICE_OPERATIONS and PENDING_VOICE_OPERATIONS[op_id]["status"] == "pending":
@@ -1446,9 +1768,34 @@ def handle_voice_assistant(
     intent_result = ai_service.classify_voice_command(raw_text, context=context_data)
     logger.info(f"Classified intent: {intent_result.intent.value} for text '{raw_text}'")
 
+    # Intent 0: PROVIDE_EMAIL (when email is provided and pending op exists)
+    if intent_result.intent == VoiceIntentType.PROVIDE_EMAIL:
+        if op_id and op_id in PENDING_VOICE_OPERATIONS and PENDING_VOICE_OPERATIONS[op_id].get("status") in ("waiting_for_email", "pending"):
+            op = PENDING_VOICE_OPERATIONS[op_id]
+            em = intent_result.customer_email or extracted_email
+            if em and is_valid_email(em):
+                op["customer_email"] = em
+                op["status"] = "pending"
+                is_en = (op.get("language") == "english")
+                if is_en:
+                    en_type = "credit" if op["transaction_type"] == "UDHAAR" else "payment"
+                    reply = f"{op['customer_name']} ₹{op['amount']:.2f} {en_type}, email {em}. Should I save this entry?"
+                else:
+                    type_label = "udhaar" if op["transaction_type"] == "UDHAAR" else "jama"
+                    reply = f"{op['customer_name']} ka ₹{op['amount']:.2f} {type_label}, email {em}. Kya main entry save kar doon?"
+                LAST_SESSION_REPLIES[session_id] = reply
+                return VoiceAssistantResponse(
+                    reply_message=reply,
+                    action_taken="email_collected_awaiting_confirmation",
+                    requires_confirmation=True,
+                    pending_operation=PendingOperationData(**op)
+                )
+        reply = f"Customer email received: {intent_result.customer_email}. Kripya transaction command bolein."
+        return VoiceAssistantResponse(reply_message=reply, action_taken="email_received", requires_confirmation=False)
+
     # Intent A: CONFIRM
     if intent_result.intent == VoiceIntentType.CONFIRM:
-        if op_id and op_id in PENDING_VOICE_OPERATIONS and PENDING_VOICE_OPERATIONS[op_id]["status"] == "pending":
+        if op_id and op_id in PENDING_VOICE_OPERATIONS:
             return handle_voice_assistant(
                 VoiceAssistantRequest(text="confirm", session_id=session_id, pending_operation_id=op_id, action="confirm"),
                 db=db,
@@ -1467,7 +1814,7 @@ def handle_voice_assistant(
 
     # Intent C: CORRECT PENDING ENTRY ("500 nahi 800")
     if intent_result.intent == VoiceIntentType.CORRECT_PENDING_ENTRY:
-        if op_id and op_id in PENDING_VOICE_OPERATIONS and PENDING_VOICE_OPERATIONS[op_id]["status"] == "pending":
+        if op_id and op_id in PENDING_VOICE_OPERATIONS and PENDING_VOICE_OPERATIONS[op_id]["status"] in ("pending", "waiting_for_email"):
             op = PENDING_VOICE_OPERATIONS[op_id]
             if intent_result.corrected_amount:
                 op["amount"] = intent_result.corrected_amount
@@ -1475,17 +1822,18 @@ def handle_voice_assistant(
                 op["customer_name"] = intent_result.corrected_customer_name
 
             is_en = (op.get("language") == "english") or (intent_result.language == "english")
+            email_mention = f", email {op['customer_email']}" if op.get("customer_email") else ""
             if is_en:
                 en_type = "credit" if op["transaction_type"] == "UDHAAR" else "payment"
-                reply = f"Updated amount for {op['customer_name']} to ₹{op['amount']:.2f} {en_type}. Should I save it?"
+                reply = f"Updated amount for {op['customer_name']} to ₹{op['amount']:.2f} {en_type}{email_mention}. Should I save it?"
             else:
                 type_label = "udhaar" if op["transaction_type"] == "UDHAAR" else "jama"
-                reply = f"Theek hai, {op['customer_name']} ke khate mein amount badal kar ₹{op['amount']:.2f} {type_label} kar diya gaya hai. Kya main save kar doon?"
+                reply = f"Theek hai, {op['customer_name']} ke khate mein amount badal kar ₹{op['amount']:.2f} {type_label}{email_mention} kar diya gaya hai. Kya main save kar doon?"
             LAST_SESSION_REPLIES[session_id] = reply
             return VoiceAssistantResponse(
                 reply_message=reply,
                 action_taken="corrected_pending_entry",
-                requires_confirmation=True,
+                requires_confirmation=(op.get("status") == "pending"),
                 pending_operation=PendingOperationData(**op)
             )
         msg = "No pending entry found to correct." if intent_result.language == "english" else "Koi pending entry nahi mili jise correct kiya ja sake."
@@ -1524,29 +1872,91 @@ def handle_voice_assistant(
         msg = "Assistant stopped. Say 'Suno Hisab' or tap the mic when needed." if intent_result.language == "english" else "Assistant band kar diya gaya hai. Jab zaroorat ho, 'Suno Hisab' bolein ya mic dabayein."
         return VoiceAssistantResponse(reply_message=msg, action_taken="stopped", requires_confirmation=False)
 
-    # Intent I: ENTRY (Two-Step Workflow: Prepare first, never save without confirmation!)
+    # Intent I: ENTRY (Two-Step Workflow: Prepare first, never save without confirmation and mandatory email!)
     if intent_result.intent == VoiceIntentType.ENTRY:
         if not intent_result.customer_name or not intent_result.amount or not intent_result.transaction_type:
             msg = "Could not clearly hear customer name or amount. Please say again, e.g. 'Record 500 credit for Rahul'." if intent_result.language == "english" else "Customer ka naam ya amount clear nahi suna. Kripya dobara bolein, jaise 'Rahul ko 500 udhaar diya'."
             return VoiceAssistantResponse(reply_message=msg, action_taken="incomplete_entry", requires_confirmation=False)
 
+        # Customer Email Resolution
+        target_email = intent_result.customer_email
+        if not target_email:
+            # Check existing email in DB for this customer in this shop
+            existing_tx_email = (
+                db.query(Transaction.customer_email)
+                .filter(
+                    Transaction.user_id == auth_user_id,
+                    func.lower(Transaction.customer_name) == intent_result.customer_name.lower(),
+                    Transaction.customer_email != None,
+                    Transaction.customer_email != ""
+                )
+                .order_by(Transaction.id.desc())
+                .first()
+            )
+            if existing_tx_email and existing_tx_email[0]:
+                target_email = existing_tx_email[0]
+            else:
+                existing_rem_email = (
+                    db.query(PaymentReminder.customer_email)
+                    .filter(
+                        PaymentReminder.shop_id == auth_user_id,
+                        func.lower(PaymentReminder.customer_name) == intent_result.customer_name.lower(),
+                        PaymentReminder.customer_email != None,
+                        PaymentReminder.customer_email != ""
+                    )
+                    .order_by(PaymentReminder.id.desc())
+                    .first()
+                )
+                if existing_rem_email and existing_rem_email[0]:
+                    target_email = existing_rem_email[0]
+
+        is_en = (intent_result.language == "english")
+
+        if not target_email:
+            # Customer has no registered email: MUST request email before transaction can be saved!
+            pending_op = create_pending_operation(
+                customer_name=intent_result.customer_name,
+                amount=intent_result.amount,
+                transaction_type=intent_result.transaction_type,
+                customer_email=None,
+                session_id=session_id,
+                user_id=auth_user_id,
+                language=intent_result.language,
+                status="waiting_for_email"
+            )
+            reply = (
+                f"{intent_result.customer_name}'s email ID is not registered. Please provide their email address."
+                if is_en else
+                f"{intent_result.customer_name} ki email ID registered nahi hai. Kripya pehle email ID bataiye."
+            )
+            LAST_SESSION_REPLIES[session_id] = reply
+            return VoiceAssistantResponse(
+                reply_message=reply,
+                action_taken="waiting_for_customer_email",
+                requires_confirmation=False,
+                pending_operation=pending_op
+            )
+
+        # Customer has an email: proceed to confirmation including recipient email in speech!
         pending_op = create_pending_operation(
             customer_name=intent_result.customer_name,
             amount=intent_result.amount,
             transaction_type=intent_result.transaction_type,
+            customer_email=target_email,
             session_id=session_id,
             user_id=auth_user_id,
-            language=intent_result.language
+            language=intent_result.language,
+            status="pending"
         )
 
-        if intent_result.language == "english":
+        if is_en:
             en_type = "credit" if intent_result.transaction_type == "UDHAAR" else "payment"
-            reply = f"Record ₹{intent_result.amount:.2f} {en_type} for {intent_result.customer_name}? Say 'yes' to confirm or 'no' to cancel."
+            reply = f"Record ₹{intent_result.amount:.2f} {en_type} for {intent_result.customer_name}? Recipient email is {target_email}. Say 'yes' to confirm or 'no' to cancel."
         else:
             type_label = "udhaar" if intent_result.transaction_type == "UDHAAR" else "jama"
-            reply = f"{intent_result.customer_name} ke khate mein ₹{intent_result.amount:.2f} {type_label} likhne hain. Kya main save kar doon?"
-        LAST_SESSION_REPLIES[session_id] = reply
+            reply = f"{intent_result.customer_name} ka ₹{intent_result.amount:.2f} {type_label}, email {target_email}. Kya main entry save kar doon?"
 
+        LAST_SESSION_REPLIES[session_id] = reply
         return VoiceAssistantResponse(
             reply_message=reply,
             action_taken="prepared_entry",
@@ -1616,17 +2026,48 @@ def handle_voice_assistant(
         settle_type = "JAMA" if bal > 0 else "UDHAAR"
         settle_amount = abs(bal)
 
+        # Customer Email Resolution for Settlement
+        target_email = next((t.customer_email for t in records if t.customer_email), None)
+        if not target_email:
+            rem_email_row = db.query(PaymentReminder.customer_email).filter(
+                func.lower(PaymentReminder.customer_name) == canonical.lower(),
+                PaymentReminder.customer_email != None
+            ).first()
+            if rem_email_row and rem_email_row[0]:
+                target_email = rem_email_row[0]
+
+        if not target_email:
+            pending_op = create_pending_operation(
+                customer_name=canonical,
+                amount=settle_amount,
+                transaction_type=settle_type,
+                customer_email=None,
+                session_id=session_id,
+                user_id=auth_user_id,
+                status="waiting_for_email"
+            )
+            reply = f"{canonical} ki email ID registered nahi hai. Settle karne se pehle kripya email ID bataiye."
+            LAST_SESSION_REPLIES[session_id] = reply
+            return VoiceAssistantResponse(
+                reply_message=reply,
+                action_taken="waiting_for_customer_email",
+                requires_confirmation=False,
+                pending_operation=pending_op
+            )
+
         pending_op = create_pending_operation(
             customer_name=canonical,
             amount=settle_amount,
             transaction_type=settle_type,
+            customer_email=target_email,
             session_id=session_id,
-            user_id=auth_user_id
+            user_id=auth_user_id,
+            status="pending"
         )
 
         reply = (
             f"{canonical} ka ₹{settle_amount:,.2f} ka hisab baaki hai. "
-            f"Khata zero karne ke liye ₹{settle_amount:,.2f} {settle_type.lower()} darj karna hoga. "
+            f"Khata zero karne ke liye ₹{settle_amount:,.2f} {settle_type.lower()} darj karna hoga, email {target_email}. "
             f"Kya main save kar doon?"
         )
         LAST_SESSION_REPLIES[session_id] = reply
@@ -2439,14 +2880,24 @@ def create_inventory_product(
     db: Session = Depends(get_db)
 ):
     shop_id = get_effective_shop_id(current_user)
+    clean_name = payload.name.strip()
+    if not clean_name:
+        raise HTTPException(status_code=400, detail="Product name cannot be empty.")
+
+    clean_sku = payload.sku.strip() if payload.sku else None
+    if clean_sku:
+        existing_sku = db.query(Product).filter(Product.shop_id == shop_id, Product.sku == clean_sku).first()
+        if existing_sku:
+            raise HTTPException(status_code=400, detail=f"Product with SKU '{clean_sku}' already exists in your inventory.")
+
     c_paise = int(round(float(payload.cost_price) * 100))
     s_paise = int(round(float(payload.selling_price) * 100))
 
     prod = Product(
         shop_id=shop_id,
         user_id=current_user.id,
-        name=payload.name.strip(),
-        sku=payload.sku.strip() if payload.sku else None,
+        name=clean_name,
+        sku=clean_sku,
         category=payload.category.strip() if payload.category else "General",
         unit=payload.unit.strip() if payload.unit else "pcs",
         cost_price_paise=c_paise,
@@ -3438,7 +3889,7 @@ def send_email_reminder(
         subject=subject,
         html_content=content["html"],
         text_content=content["text"],
-        sender_email=getattr(owner, "email", None),
+        sender_email=None,
         sender_name=owner.shop_name or "HisabAI"
     )
 

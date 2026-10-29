@@ -108,6 +108,7 @@ class TestAuditFixesAndRequirements:
         """Verifies integer paise precision and duplicate submit suppression within 4 seconds."""
         payload = {
             "customer_name": "Ramesh Gupta",
+            "customer_email": "ramesh.gupta@example.com",
             "amount": 10.00,
             "transaction_type": "UDHAAR",
             "raw_text": "Chai patti udhaar"

@@ -3608,6 +3608,19 @@
                 <datalist id="customerNameDatalist"></datalist>
               </div>
 
+              <!-- Customer Email (Mandatory for Receipts) -->
+              <div class="auth-form-group">
+                <label class="auth-label" for="entryCustomerEmail">Customer Email <span style="color:#ef4444;">*</span></label>
+                <input
+                  type="email"
+                  id="entryCustomerEmail"
+                  class="auth-input"
+                  placeholder="e.g. customer@example.com (Required for Receipt)"
+                  required
+                  autocomplete="email"
+                />
+              </div>
+
               <!-- Amount in Rupees (Hero Input) -->
               <div class="auth-form-group">
                 <label class="auth-label" for="entryAmount">Amount (₹)</label>
@@ -3810,6 +3823,29 @@
               </div>
             </div>
 
+            <!-- Mandatory Customer Email Prompt Card -->
+            <div id="voiceEmailPromptCard" style="display: none; background: var(--bg-surface); border: 1px solid rgba(59, 130, 246, 0.5); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 14px;">
+              <div style="font-weight: 800; color: #3b82f6; margin-bottom: 8px; font-size: 0.95rem;">
+                ✉️ Customer Email Required
+              </div>
+              <p style="font-size: 0.85rem; color: var(--text-secondary); margin: 0 0 10px 0;">
+                Customer email is mandatory for automatic receipt delivery. Speak the email address or enter it below:
+              </p>
+              <div style="display: flex; gap: 8px;">
+                <input
+                  type="email"
+                  id="voiceCustomerEmailInput"
+                  class="auth-input"
+                  placeholder="e.g. customer@example.com"
+                  style="flex: 1; padding: 8px 12px; font-size: 0.9rem;"
+                  onkeydown="if(event.key === 'Enter'){ submitVoiceCustomerEmail(); }"
+                />
+                <button type="button" class="btn-action-primary" onclick="submitVoiceCustomerEmail()" style="padding: 8px 16px;">
+                  ✓ Save Email
+                </button>
+              </div>
+            </div>
+
             <!-- Two-Step Confirmation Card -->
             <div id="voiceConfirmCard" class="voice-confirmation-card">
               <div style="font-weight: 800; color: #f59e0b; margin-bottom: 12px; font-size: 0.98rem;">
@@ -3827,6 +3863,10 @@
                 <div style="display: flex; justify-content: space-between;">
                   <span style="color: var(--text-secondary);">Type:</span>
                   <strong id="voiceConfirmType">-</strong>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                  <span style="color: var(--text-secondary);">Recipient Email:</span>
+                  <strong id="voiceConfirmEmail" style="color: #3b82f6;">-</strong>
                 </div>
               </div>
               <div style="display: flex; gap: 12px;">
@@ -4063,6 +4103,12 @@
 
             <!-- System Reliability & Snapshots -->
             <div class="settings-box">
+              <div style="display: none;">
+                <span id="settingsShopName"></span>
+                <span id="settingsUsername"></span>
+                <span id="settingsCreatedAt"></span>
+                <span id="settingsAiEngine"></span>
+              </div>
               <h3 style="font-size: 1.15rem; font-weight: 800; color: var(--text-primary); margin-bottom: 14px;">
                 🛡️ Reliability, Snapshots & Storage
               </h3>
@@ -4689,6 +4735,23 @@
       initElectricBorders();
       initSpecularButtons();
       initBorderGlowCards();
+
+      // Explicit event listeners for primary modal action buttons
+      const btnAddTeam = document.getElementById('btnAddTeamMember');
+      if (btnAddTeam) {
+        btnAddTeam.addEventListener('click', (e) => {
+          e.preventDefault();
+          openTeamMemberModal();
+        });
+      }
+      const btnAddProd = document.getElementById('btnOpenAddProduct');
+      if (btnAddProd) {
+        btnAddProd.addEventListener('click', (e) => {
+          e.preventDefault();
+          openProductModal();
+        });
+      }
+
       await verifySessionOnLoad();
     });
 
@@ -4908,15 +4971,17 @@
       const roleIcons = { OWNER: '👑 Owner', MANAGER: '💼 Manager', STAFF: '👤 Staff' };
       const roleDisplay = roleIcons[role] || 'Shop Owner';
 
-      document.getElementById('sidebarShopPill').textContent = user.shop_name;
-      document.getElementById('sidebarUserName').textContent = user.username;
+      if (document.getElementById('sidebarShopPill')) document.getElementById('sidebarShopPill').textContent = user.shop_name;
+      if (document.getElementById('sidebarUserName')) document.getElementById('sidebarUserName').textContent = user.username;
       if (document.getElementById('sidebarUserRole')) {
         document.getElementById('sidebarUserRole').textContent = roleDisplay;
       }
-      document.getElementById('bannerGreeting').textContent = `Welcome, ${user.shop_name}! (${roleDisplay})`;
-      document.getElementById('settingsShopName').textContent = user.shop_name;
-      document.getElementById('settingsUsername').textContent = user.username;
-      document.getElementById('settingsCreatedAt').textContent = user.created_at || 'Active';
+      if (document.getElementById('bannerGreeting')) document.getElementById('bannerGreeting').textContent = `Welcome, ${user.shop_name}! (${roleDisplay})`;
+      if (document.getElementById('settingsShopName')) document.getElementById('settingsShopName').textContent = user.shop_name;
+      if (document.getElementById('settingsUsername')) document.getElementById('settingsUsername').textContent = user.username;
+      if (document.getElementById('settingsCreatedAt')) document.getElementById('settingsCreatedAt').textContent = user.created_at || 'Active';
+      if (document.getElementById('settingsShopNameInput')) document.getElementById('settingsShopNameInput').value = user.shop_name || '';
+      if (document.getElementById('settingsOwnerNameInput')) document.getElementById('settingsOwnerNameInput').value = user.owner_name || user.username || '';
 
       // RBAC UI Gating: Hide team / backup buttons for non-owners
       if (document.getElementById('btnAddTeamMember')) {
@@ -5419,6 +5484,7 @@
     async function handleManualTransactionSubmit(event) {
       event.preventDefault();
       const customer_name = document.getElementById('entryCustomerName').value.trim();
+      const customer_email = document.getElementById('entryCustomerEmail') ? document.getElementById('entryCustomerEmail').value.trim() : '';
       const amount = parseFloat(document.getElementById('entryAmount').value);
       const notes = document.getElementById('entryNotes').value.trim();
       const btn = document.getElementById('submitEntryBtn');
@@ -5434,6 +5500,7 @@
       try {
         const payload = {
           customer_name: customer_name,
+          customer_email: customer_email || undefined,
           amount: amount,
           transaction_type: currentEntryType,
           raw_text: notes || (currentEntryType === 'UDHAAR' ? `Credit of ₹${amount} for ${customer_name}` : `Payment of ₹${amount} from ${customer_name}`)
@@ -5448,11 +5515,12 @@
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.detail || "Could not save transaction");
 
-        showToast(`✓ ₹${amount.toFixed(2)} ${currentEntryType === 'UDHAAR' ? 'Credit' : 'Payment'} saved successfully for ${customer_name}!`, "success");
+        showToast(`✓ ₹${amount.toFixed(2)} ${currentEntryType === 'UDHAAR' ? 'Credit' : 'Payment'} saved successfully for ${customer_name}! Receipt queued.`, "success");
 
         // Reset form
         document.getElementById('entryAmount').value = '';
         document.getElementById('entryNotes').value = '';
+        if (document.getElementById('entryCustomerEmail')) document.getElementById('entryCustomerEmail').value = '';
 
         // Navigate directly to dashboard so user immediately sees entry in Today's list
         navigateTo('dashboard');
@@ -5876,7 +5944,7 @@
         }
 
         if (inventoryCache.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-secondary); padding: 28px;">No products in catalog yet. Click "+ Add Product" to get started.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-secondary); padding: 28px;">No products in catalog yet. <button type="button" class="table-btn-action" style="margin-left: 8px; font-weight: 700; background: var(--brand-primary); color: #fff;" onclick="openProductModal()">+ Add Product</button></td></tr>';
           return;
         }
 
@@ -5913,27 +5981,38 @@
     }
 
     function openProductModal(productId = null) {
-      document.getElementById('productForm').reset();
-      document.getElementById('productEditId').value = productId || '';
-      document.getElementById('productModalTitle').textContent = productId ? '📦 Edit Product' : '📦 Add New Product';
+      const form = document.getElementById('productForm');
+      if (form) form.reset();
+      const editId = document.getElementById('productEditId');
+      if (editId) editId.value = productId || '';
+      const title = document.getElementById('productModalTitle');
+      if (title) title.textContent = productId ? '📦 Edit Product' : '📦 Add New Product';
 
       if (productId) {
         const p = inventoryCache.find(x => x.id === productId);
         if (p) {
-          document.getElementById('productNameInput').value = p.name;
-          document.getElementById('productSkuInput').value = p.sku || '';
-          document.getElementById('productCategoryInput').value = p.category;
-          document.getElementById('productCostInput').value = p.cost_price;
-          document.getElementById('productPriceInput').value = p.selling_price;
-          document.getElementById('productStockInput').value = p.current_stock;
-          document.getElementById('productThresholdInput').value = p.low_stock_threshold;
+          if (document.getElementById('productNameInput')) document.getElementById('productNameInput').value = p.name;
+          if (document.getElementById('productSkuInput')) document.getElementById('productSkuInput').value = p.sku || '';
+          if (document.getElementById('productCategoryInput')) document.getElementById('productCategoryInput').value = p.category;
+          if (document.getElementById('productCostInput')) document.getElementById('productCostInput').value = p.cost_price;
+          if (document.getElementById('productPriceInput')) document.getElementById('productPriceInput').value = p.selling_price;
+          if (document.getElementById('productStockInput')) document.getElementById('productStockInput').value = p.current_stock;
+          if (document.getElementById('productThresholdInput')) document.getElementById('productThresholdInput').value = p.low_stock_threshold;
         }
       }
-      document.getElementById('productModalOverlay').classList.add('active');
+      const overlay = document.getElementById('productModalOverlay');
+      if (overlay) {
+        overlay.classList.add('active');
+        overlay.style.display = 'flex';
+      }
     }
 
     function closeProductModal() {
-      document.getElementById('productModalOverlay').classList.remove('active');
+      const overlay = document.getElementById('productModalOverlay');
+      if (overlay) {
+        overlay.classList.remove('active');
+        overlay.style.display = 'none';
+      }
     }
 
     async function handleProductFormSubmit(event) {
@@ -5947,19 +6026,25 @@
       const initial_stock = parseFloat(document.getElementById('productStockInput').value) || 0;
       const low_stock_threshold = parseFloat(document.getElementById('productThresholdInput').value) || 5;
 
+      const submitBtn = event.target.querySelector('button[type="submit"]');
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Saving to catalog...";
+      }
+
       try {
         let resp;
         if (editId) {
           resp = await fetch(`/api/inventory/products/${editId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, sku, category, cost_price, selling_price, low_stock_threshold })
+            body: JSON.stringify({ name, sku: sku || null, category: category || "General", cost_price, selling_price, low_stock_threshold })
           });
         } else {
           resp = await fetch('/api/inventory/products', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, sku, category, cost_price, selling_price, initial_stock, low_stock_threshold })
+            body: JSON.stringify({ name, sku: sku || null, category: category || "General", cost_price, selling_price, initial_stock, low_stock_threshold })
           });
         }
         if (!resp.ok) {
@@ -5967,10 +6052,15 @@
           throw new Error(errData.detail || "Failed to save product");
         }
         closeProductModal();
-        showToast(`Product "${name}" saved!`, 'success');
+        showToast(`✓ Product "${name}" saved to catalog!`, 'success');
         fetchInventoryProducts();
       } catch (err) {
         showToast(err.message, 'error');
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = "✓ Save Product";
+        }
       }
     }
 
@@ -6061,7 +6151,8 @@
     }
 
     function openTeamMemberModal() {
-      document.getElementById('teamMemberForm').reset();
+      const form = document.getElementById('teamMemberForm');
+      if (form) form.reset();
       const overlay = document.getElementById('teamMemberModalOverlay');
       if (overlay) {
         overlay.classList.add('active');
@@ -6085,11 +6176,17 @@
       const password = document.getElementById('teamMemberPassword').value;
       const role = document.getElementById('teamMemberRole').value;
 
+      const submitBtn = event.target.querySelector('button[type="submit"]');
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Creating Account...";
+      }
+
       try {
         const resp = await fetch('/api/team/members', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, owner_name, email: email || null, password, role })
+          body: JSON.stringify({ username, owner_name: owner_name || null, email: email || null, password, role })
         });
         if (!resp.ok) {
           const err = await resp.json();
@@ -6100,6 +6197,11 @@
         fetchTeamMembers();
       } catch (err) {
         showToast(err.message, 'error');
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = "✓ Create Account";
+        }
       }
     }
 
@@ -6585,15 +6687,33 @@
 
         startConversationSession();
 
-        if (data.requires_confirmation && data.pending_operation) {
+        if (data.action_taken === 'waiting_for_customer_email' || (data.pending_operation && data.pending_operation.status === 'waiting_for_email')) {
           activePendingOperation = data.pending_operation;
+          const emailCard = document.getElementById('voiceEmailPromptCard');
+          if (emailCard) {
+            emailCard.style.display = 'block';
+            const emailInp = document.getElementById('voiceCustomerEmailInput');
+            if (emailInp) {
+              emailInp.value = '';
+              setTimeout(() => emailInp.focus(), 300);
+            }
+          }
+          if (document.getElementById('voiceConfirmCard')) {
+            document.getElementById('voiceConfirmCard').style.display = 'none';
+          }
+        } else if (data.requires_confirmation && data.pending_operation) {
+          activePendingOperation = data.pending_operation;
+          if (document.getElementById('voiceEmailPromptCard')) {
+            document.getElementById('voiceEmailPromptCard').style.display = 'none';
+          }
           renderVoiceConfirmCard(data.pending_operation);
           updateFsmBadge(FSM_STATES.AWAITING_CONFIRMATION);
         } else {
+          if (document.getElementById('voiceEmailPromptCard')) document.getElementById('voiceEmailPromptCard').style.display = 'none';
           document.getElementById('voiceConfirmCard').style.display = 'none';
           if (data.action_taken === 'committed_transaction') {
             activePendingOperation = null;
-            showToast("✓ Saved to ledger successfully!", "success");
+            showToast("✓ Saved to ledger successfully! Receipt email dispatched.", "success");
             fetchDashboardData();
           } else if (data.action_taken === 'cancelled') {
             activePendingOperation = null;
@@ -6680,7 +6800,19 @@
       const typeEl = document.getElementById('voiceConfirmType');
       typeEl.textContent = isU ? 'Credit Given (Out)' : 'Payment Received (In)';
       typeEl.style.color = isU ? 'var(--color-udhaar-red)' : 'var(--color-jama-green)';
+      const emailEl = document.getElementById('voiceConfirmEmail');
+      if (emailEl) emailEl.textContent = op.customer_email || 'Registered on file';
       document.getElementById('voiceConfirmCard').style.display = 'block';
+    }
+
+    async function submitVoiceCustomerEmail() {
+      const emailInput = document.getElementById('voiceCustomerEmailInput');
+      const email = emailInput ? emailInput.value.trim() : '';
+      if (!email || !email.includes('@')) {
+        showToast("Please enter a valid customer email address.", "error");
+        return;
+      }
+      await dispatchVoiceCommand(email, activePendingOperation?.operation_id);
     }
 
     async function submitVoiceConfirmationChoice(action) {
@@ -6758,12 +6890,14 @@
         const resp = await fetch('/api/health');
         if (!resp.ok) return;
         const data = await resp.json();
+        const aiText = document.getElementById('aiModelText');
+        const settingsAi = document.getElementById('settingsAiEngine');
         if (data.ai_configured) {
-          document.getElementById('aiModelText').textContent = data.ai_model || 'Gemma Active';
-          document.getElementById('settingsAiEngine').textContent = `${data.ai_model} (Online)`;
+          if (aiText) aiText.textContent = data.ai_model || 'Gemma Active';
+          if (settingsAi) settingsAi.textContent = `${data.ai_model} (Online)`;
         } else {
-          document.getElementById('aiModelText').textContent = 'Manual Mode';
-          document.getElementById('settingsAiEngine').textContent = 'Manual Heuristics';
+          if (aiText) aiText.textContent = 'Manual Mode';
+          if (settingsAi) settingsAi.textContent = 'Manual Heuristics';
         }
       } catch (e) {}
     }

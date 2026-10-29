@@ -59,6 +59,8 @@ def init_db(target_engine=None):
                 conn.execute(text("ALTER TABLE transactions ADD COLUMN user_id INTEGER"))
             if existing_columns and "customer_phone" not in existing_columns:
                 conn.execute(text("ALTER TABLE transactions ADD COLUMN customer_phone VARCHAR(20)"))
+            if existing_columns and "customer_email" not in existing_columns:
+                conn.execute(text("ALTER TABLE transactions ADD COLUMN customer_email VARCHAR(120)"))
             if existing_columns and "notes" not in existing_columns:
                 conn.execute(text("ALTER TABLE transactions ADD COLUMN notes VARCHAR(255)"))
 

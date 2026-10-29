@@ -168,6 +168,7 @@ class TestHisabAIFullSuite(unittest.TestCase):
         """Verifies saving a confirmed UDHAAR transaction stores exact integer paise."""
         payload = {
             "customer_name": "Raju Kirana",
+            "customer_email": "raju@kirana.com",
             "amount": 350.50,
             "transaction_type": "UDHAAR"
         }
@@ -190,6 +191,7 @@ class TestHisabAIFullSuite(unittest.TestCase):
         """Verifies saving a confirmed JAMA transaction."""
         payload = {
             "customer_name": "Raju Kirana",
+            "customer_email": "raju@kirana.com",
             "amount": 200.0,
             "transaction_type": "JAMA"
         }
@@ -222,14 +224,14 @@ class TestHisabAIFullSuite(unittest.TestCase):
         self.assertIn(resp.status_code, (400, 422))
 
     def test_create_transaction_backwards_compatibility_raw_text(self):
-        """Verifies POST /api/transaction supports legacy raw text payload."""
+        """Verifies POST /api/transaction supports legacy raw text payload with customer email."""
         mock_result = ExtractedTransaction(
             customer_name="Verma ji",
             amount=500.0,
             transaction_type="UDHAAR"
         )
         with patch("ai_service.parse_hinglish_input", return_value=mock_result):
-            resp = client.post("/api/transaction", json={"text": "Verma ji ka 500 udhaar"})
+            resp = client.post("/api/transaction", json={"text": "Verma ji ka 500 udhaar email verma@example.com"})
 
         self.assertEqual(resp.status_code, 201)
         data = resp.json()
@@ -259,6 +261,7 @@ class TestHisabAIFullSuite(unittest.TestCase):
             "/api/transaction",
             json={
                 "customer_name": "Sharma ji",
+                "customer_email": "sharma.ji@example.com",
                 "amount": 250.0,
                 "transaction_type": "UDHAAR"
             }
@@ -614,7 +617,7 @@ class TestHisabAIFullSuite(unittest.TestCase):
         3. Repeating Step 2 (Idempotency) returns the already committed transaction and does NOT duplicate DB rows.
         """
         # Step 1: Speak an entry command
-        req1 = {"text": "Suno Hisab Raju ka 350 rupaye udhaar likh do"}
+        req1 = {"text": "Suno Hisab Raju ka 350 rupaye udhaar likh do email raju@gmail.com"}
         resp1 = client.post("/api/voice-assistant", json=req1)
         self.assertEqual(resp1.status_code, 200)
         data1 = resp1.json()
@@ -699,7 +702,7 @@ class TestHisabAIFullSuite(unittest.TestCase):
 
     def test_voice_assistant_entry_cancellation(self):
         """Verifies cancellation discards pending operation without any database write."""
-        req1 = {"text": "Mohan ka 500 jama likh do"}
+        req1 = {"text": "Mohan ka 500 jama likh do email mohan@gmail.com"}
         resp1 = client.post("/api/voice-assistant", json=req1)
         self.assertEqual(resp1.status_code, 200)
         pending_id = resp1.json()["pending_operation"]["operation_id"]
@@ -719,7 +722,7 @@ class TestHisabAIFullSuite(unittest.TestCase):
 
     def test_voice_assistant_entry_correction(self):
         """Verifies user can correct the pending amount before confirming."""
-        req1 = {"text": "Sharma ji ka 400 udhaar likho"}
+        req1 = {"text": "Sharma ji ka 400 udhaar likho email sharma@gmail.com"}
         resp1 = client.post("/api/voice-assistant", json=req1)
         self.assertEqual(resp1.status_code, 200)
         pending_id = resp1.json()["pending_operation"]["operation_id"]
@@ -874,7 +877,7 @@ class TestHisabAIFullSuite(unittest.TestCase):
         db = TestingSession()
         now_ist = get_current_ist_time()
         # Tausif has ₹1500 outstanding udhaar
-        db.add(Transaction(customer_name="Tausif", amount_paise=150000, transaction_type=TransactionType.UDHAAR, timestamp=now_ist))
+        db.add(Transaction(customer_name="Tausif", customer_email="tausif@example.com", amount_paise=150000, transaction_type=TransactionType.UDHAAR, timestamp=now_ist))
         db.commit()
         db.close()
 
@@ -925,6 +928,7 @@ class TestHisabAIFullSuite(unittest.TestCase):
         """Verifies POST /api/transactions alias creates transaction with integer paise."""
         payload = {
             "customer_name": "Ramesh Gupta",
+            "customer_email": "ramesh@example.com",
             "amount": 450.50,
             "transaction_type": "UDHAAR"
         }
@@ -1053,6 +1057,7 @@ class TestHisabAIFullSuite(unittest.TestCase):
         # 3. Shop A creates transaction for "Grahak Ramesh" (₹500 Udhaar)
         tx_a = client_a.post("/api/transaction", json={
             "customer_name": "Grahak Ramesh",
+            "customer_email": "ramesh@shopa.com",
             "amount": 500.0,
             "transaction_type": "UDHAAR"
         })
@@ -1061,6 +1066,7 @@ class TestHisabAIFullSuite(unittest.TestCase):
         # 4. Shop B creates transaction for "Grahak Suresh" (₹300 Jama)
         tx_b = client_b.post("/api/transaction", json={
             "customer_name": "Grahak Suresh",
+            "customer_email": "suresh@shopb.com",
             "amount": 300.0,
             "transaction_type": "JAMA"
         })
@@ -1209,7 +1215,7 @@ class TestHisabAIFullSuite(unittest.TestCase):
     def test_voice_english_entry_and_confirmation(self):
         """Verifies English entry flow: 'record 500 credit for Ramesh' and 'yes' confirmation."""
         # 1. Prepare
-        req1 = {"text": "record 500 credit for Ramesh", "session_id": "eng_test_session"}
+        req1 = {"text": "record 500 credit for Ramesh email ramesh@example.com", "session_id": "eng_test_session"}
         resp1 = client.post("/api/voice-assistant", json=req1)
         self.assertEqual(resp1.status_code, 200)
         data1 = resp1.json()

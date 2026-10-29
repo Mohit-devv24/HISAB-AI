@@ -376,10 +376,28 @@ def strip_wake_word(text: str) -> str:
 # Fast Path Deterministic Matching
 # ==========================================
 
+def extract_email_from_text(raw_text: str) -> Optional[str]:
+    """
+    Extracts an email address from spoken or written text.
+    Handles spoken speech variants such as 'at' and 'dot'.
+    """
+    if not raw_text:
+        return None
+    # Normalize spoken equivalents
+    t = raw_text.lower()
+    t = re.sub(r"\s+at\s+", "@", t)
+    t = re.sub(r"\s+dot\s+", ".", t)
+    m = re.search(r"([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)", t)
+    if m:
+        return m.group(1).lower().strip()
+    return None
+
+
 def fast_match_voice_intent(raw_text: str) -> Optional[VoiceIntentResult]:
     """
-    Quickly resolves high-confidence control phrases without waiting for external AI calls.
-    Supports Hindi, Hinglish, and English commands.
+    Quickly resolves high-confidence control phrases, Hinglish transaction entries,
+    email submissions, queries, and corrections without waiting for external AI calls.
+    Supports Hindi, Hinglish, and English commands with sub-millisecond execution.
     """
     text = strip_wake_word(raw_text).strip().lower()
     lang = detect_input_language(text)
@@ -412,7 +430,7 @@ def fast_match_voice_intent(raw_text: str) -> Optional[VoiceIntentResult]:
         return VoiceIntentResult(intent=VoiceIntentType.REPEAT_LAST_RESPONSE, language=lang)
 
     # 5. Direct amount correction fast path (e.g., "500 nahi, 800" or "not 500, 800")
-    correction_match = re.search(r"(?:(\d+)\s*(?:nahi|nhi|ke badle|ki jagah|not|instead of)\s*)?(\d+)\s*(?:rupaye|rs|₹|rupees)?(?:\s*karo|\s*likho|\s*hai|\s*make it)?$", text)
+    correction_match = re.search(r"(?:(\d+)\s*(?:nahi|nhi|ke badle|ki jagah|not|instead of)\s*)?(\d+(?:\.\d{1,2})?)\s*(?:rupaye|rs|₹|rupees)?(?:\s*karo|\s*likho|\s*hai|\s*make it)?$", text)
     if correction_match and any(w in text for w in ("nahi", "nhi", "badle", "jagah", "not", "instead")):
         new_amt = float(correction_match.group(2))
         return VoiceIntentResult(
@@ -421,6 +439,106 @@ def fast_match_voice_intent(raw_text: str) -> Optional[VoiceIntentResult]:
             corrected_amount=new_amt,
             language=lang
         )
+
+    # 6. Spoken Email Submission Fast Path (e.g., "sharma@gmail.com", "email sharma@example.com", "sharma at gmail dot com")
+    extracted_email = extract_email_from_text(raw_text)
+    if extracted_email and not any(k in text for k in ("udhaar", "jama", "credit", "payment", "likho", "likh do")):
+        return VoiceIntentResult(
+            intent=VoiceIntentType.PROVIDE_EMAIL,
+            customer_email=extracted_email,
+            language=lang
+        )
+
+    # 7. Update Customer Email Intent (e.g., "Sharma ji ki email ID update karo", "Is customer ki email ID update karo")
+    if any(q in text for q in ("email id update", "email update", "email id badlo", "update email")):
+        m_cust = re.search(r"([a-zA-Z\u0900-\u097F]+(?:\s+ji)?)\s+ki\s+email", text)
+        cust_name = m_cust.group(1).title() if m_cust else None
+        return VoiceIntentResult(
+            intent=VoiceIntentType.UPDATE_CUSTOMER_EMAIL,
+            customer_name=cust_name,
+            customer_email=extracted_email,
+            language=lang
+        )
+
+    # 8. Daily Summary & Collection Fast Path (e.g., "Aaj ka total hisaab batao", "Today's summary")
+    if any(q in text for q in (
+        "aaj ka total hisaab", "aaj ka total hisab", "aaj ka hisaab", "aaj ka hisab",
+        "aaj ka total", "today's total collection", "today total collection", "today summary", "today's summary"
+    )):
+        tx_type = "JAMA" if any(k in text for k in ("collection", "jama", "received")) else None
+        return VoiceIntentResult(
+            intent=VoiceIntentType.QUERY_DAILY_SUMMARY,
+            date_filter="today",
+            transaction_type=tx_type,
+            language=lang
+        )
+
+    # 8B. Balance Settlement Fast Path (e.g., "Tausif ka balance settle karo", "settle balance")
+    if any(q in text for q in ("settle karo", "balance settle", "settle kar do", "chukta kar do", "hisab barabar", "settle")):
+        m_set = re.search(r"([a-zA-Z\u0900-\u097F]+(?:\s+ji)?)\s+ka\s+balance\s+settle", text)
+        if not m_set:
+            m_set = re.search(r"([a-zA-Z\u0900-\u097F]+(?:\s+ji)?)\s+(?:ka|ki|ke)?\s*settle", text)
+        set_name = m_set.group(1).title() if m_set else None
+        return VoiceIntentResult(
+            intent=VoiceIntentType.SETTLE_BALANCE,
+            customer_name=set_name,
+            language=lang
+        )
+
+    # 9. Customer Balance Query Fast Path (e.g., "Sharma ji ka balance batao", "Rahul ka hisab")
+    if any(q in text for q in ("balance batao", "balance bata", "ka balance", "kitna baaki", "kitna baki")):
+        m_bal = re.search(r"([a-zA-Z\u0900-\u097F]+(?:\s+ji)?)\s+(?:ka|ki|ke)?\s*(?:balance|kitna baaki|kitna baki)", text)
+        if m_bal and m_bal.group(1).lower() not in ("aaj", "kal", "parso", "today"):
+            return VoiceIntentResult(
+                intent=VoiceIntentType.QUERY_CUSTOMER_BALANCE,
+                customer_name=m_bal.group(1).title(),
+                language=lang
+            )
+
+    # 10. Hinglish Entry Fast Path
+    # Handles: "Sharma ji ka 200 rupaye udhaar likh do", "Ramesh ne 500 rupaye jama karaye",
+    #          "Gupta ji ke naam par 1200 ka udhaar add karo", "Raju ko 300 udhaar diya",
+    #          "record 500 credit for Rahul", "Rahul paid 500"
+    has_udhaar = any(k in text for k in ("udhaar", "udhar", "credit", "diye", "diya"))
+    has_jama = any(k in text for k in ("jama", "payment", "paid", "karaye", "aaye", "aaya"))
+    if has_udhaar or has_jama:
+        entry_type = "UDHAAR" if has_udhaar else "JAMA"
+        # Strip out email portion if present so amount doesn't match digits in email
+        text_no_email = re.sub(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", "", text)
+        amt_match = re.search(r"(\d+(?:\.\d{1,2})?)", text_no_email)
+        entry_amt = float(amt_match.group(1)) if amt_match else None
+
+        name = None
+        # Pattern A: "Gupta ji ke naam par 1200 ka udhaar add karo"
+        m_naam = re.search(r"^([a-zA-Z\u0900-\u097F]+(?:\s+ji)?)\s+ke\s+naam\s+par", text_no_email)
+        if m_naam:
+            name = m_naam.group(1).title()
+
+        # Pattern B: "Sharma ji ka 200 ...", "Ramesh ne 500 ...", "Raju ko 300 ..."
+        if not name:
+            m_hi = re.search(r"^([a-zA-Z\u0900-\u097F]+(?:\s+ji)?)\s+(?:ka|ko|ne|ke)?", text_no_email)
+            if m_hi and m_hi.group(1).lower() not in ("udhaar", "jama", "credit", "payment", "record", "give", "add", "ek", "do"):
+                name = m_hi.group(1).title()
+
+        # Pattern C: English "record 500 credit for Rahul" / "give 500 credit to Rahul"
+        if not name or name.lower() in ("record", "give", "add"):
+            m_en = re.search(r"(?:for|to|from)\s+([A-Za-z\u0900-\u097F]+(?:\s+ji)?)", text_no_email)
+            if m_en:
+                name = m_en.group(1).title()
+            else:
+                m_lead = re.search(r"^([A-Za-z\u0900-\u097F]+(?:\s+ji)?)\s+(?:paid|gave|credit|payment)", text_no_email)
+                if m_lead:
+                    name = m_lead.group(1).title()
+
+        if name and entry_amt and entry_amt > 0:
+            return VoiceIntentResult(
+                intent=VoiceIntentType.ENTRY,
+                customer_name=name,
+                amount=entry_amt,
+                transaction_type=entry_type,
+                customer_email=extracted_email,
+                language=lang
+            )
 
     return None
 
