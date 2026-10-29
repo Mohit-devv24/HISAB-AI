@@ -1244,9 +1244,13 @@ def get_daily_summary(
     today_str = now_ist.strftime("%Y-%m-%d")
     shop_id = get_effective_shop_id(current_user) if current_user else None
 
-    # Query matching today's date in IST - robust across naive string SQLite and ISO timestamps
+    # Filter by IST day boundaries; compatible with SQLite and PostgreSQL.
+    start_of_today = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
+    start_of_tomorrow = start_of_today + timedelta(days=1)
+
     query = db.query(Transaction).filter(
-        func.date(Transaction.timestamp) == today_str
+        Transaction.timestamp >= start_of_today,
+        Transaction.timestamp < start_of_tomorrow,
     )
     if shop_id:
         query = query.filter(Transaction.user_id == shop_id)
