@@ -353,6 +353,47 @@ def send_brevo_email(
     login = BREVO_SMTP_LOGIN
     key = BREVO_SMTP_KEY
     from_addr = sender_email or BREVO_SENDER_EMAIL
+    # Prefer HTTPS API because some hosting platforms block SMTP ports.
+    import json
+    import os
+    from urllib.error import HTTPError, URLError
+    from urllib.request import Request, urlopen
+
+    api_key = os.getenv("BREVO_API_KEY", "").strip()
+    if api_key:
+        payload = {
+            "sender": {
+                "name": sender_name or "HisabAI",
+                "email": from_addr,
+            },
+            "to": [{"email": to_email}],
+            "subject": subject,
+            "htmlContent": html_content,
+            "textContent": text_content,
+        }
+        request = Request(
+            "https://api.brevo.com/v3/smtp/email",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "accept": "application/json",
+                "api-key": api_key,
+                "content-type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=20) as response:
+                if 200 <= response.status < 300:
+                    return True, "Email accepted by Brevo HTTPS API."
+                return False, f"Brevo API returned HTTP {response.status}."
+        except HTTPError as exc:
+            details = exc.read().decode("utf-8", "replace")[:300]
+            return False, f"Brevo API HTTP {exc.code}: {details}"
+        except URLError as exc:
+            return False, f"Brevo API network error: {exc.reason}"
+        except Exception as exc:
+            return False, f"Unexpected Brevo API error: {type(exc).__name__}: {exc}"
+
 
     if not login or not key:
         return False, "Brevo SMTP credentials are not configured in environment (BREVO_SMTP_LOGIN, BREVO_SMTP_KEY)"
