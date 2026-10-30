@@ -1321,6 +1321,206 @@ class TestHisabAIFullSuite(unittest.TestCase):
         self.assertEqual(tx.transaction_type, TransactionType.UDHAAR)
         db.close()
 
+    def test_voice_full_transaction(self):
+        """Send a complete command. Assert response requests confirmation. Send 'Haan'. Assert DB row created."""
+        session_id = "test_fsm_full_tx"
+        req1 = {"text": "Raju ko 500 udhaar diya", "session_id": session_id}
+        resp1 = client.post("/api/voice-command", json=req1)
+        self.assertEqual(resp1.status_code, 200)
+        data1 = resp1.json()
+        self.assertTrue(data1["requires_confirmation"])
+        self.assertEqual(data1["state"], "AWAITING_CONFIRMATION")
+        self.assertEqual(data1["pending_transaction"]["customer"], "Raju")
+        self.assertEqual(data1["pending_transaction"]["amount"], 500.0)
+
+        # Confirm with "Haan"
+        req2 = {"text": "Haan", "session_id": session_id}
+        resp2 = client.post("/api/voice-command", json=req2)
+        self.assertEqual(resp2.status_code, 200)
+        data2 = resp2.json()
+        self.assertEqual(data2["action_taken"], "committed_transaction")
+        self.assertEqual(data2["state"], "IDLE")
+
+        # Assert DB row created
+        db = TestingSession()
+        tx = db.query(Transaction).filter_by(customer_name="Raju").first()
+        self.assertIsNotNone(tx)
+        self.assertEqual(tx.amount_paise, 50000)
+        db.close()
+
+    def test_voice_state_bleed_prevention(self):
+        """Complete Transaction A. Start Transaction B with only a name and email. Assert that Transaction B does NOT contain the amount from Transaction A."""
+        session_id = "test_fsm_bleed"
+        # 1. Complete Transaction A
+        client.post("/api/voice-command", json={"text": "Goyal ka 2000 udhaar", "session_id": session_id})
+        client.post("/api/voice-command", json={"text": "Haan", "session_id": session_id})
+
+        # 2. Start Transaction B with only email
+        resp_b = client.post("/api/voice-command", json={"text": "a g a r w a l 123456k@gmail.com", "session_id": session_id})
+        self.assertEqual(resp_b.status_code, 200)
+        data_b = resp_b.json()
+
+        # Assert Transaction B does NOT contain amount 2000 from Transaction A
+        self.assertEqual(data_b["state"], "IDLE")
+        self.assertFalse(data_b["requires_confirmation"])
+        self.assertIsNone(data_b.get("pending_transaction"))
+        self.assertNotIn("2000", data_b["reply_message"])
+
+    def test_voice_correction_flow(self):
+        """
+        Send 'Goyal ka 2000 udhaar'. Assert state is AWAITING_CONFIRMATION.
+        Send 'Nahi, email ID change karo. n e w e m a i l @ g m a i l . c o m'.
+        Assert state remains AWAITING_CONFIRMATION, customer is 'Goyal', amount is 2000, but email is 'newemail@gmail.com'.
+        """
+        session_id = "test_fsm_correction"
+        resp1 = client.post("/api/voice-command", json={"text": "Goyal ka 2000 udhaar", "session_id": session_id})
+        self.assertEqual(resp1.status_code, 200)
+        data1 = resp1.json()
+        self.assertEqual(data1["state"], "AWAITING_CONFIRMATION")
+        self.assertEqual(data1["pending_transaction"]["customer"], "Goyal")
+        self.assertEqual(data1["pending_transaction"]["amount"], 2000.0)
+
+        # Email correction
+        resp2 = client.post("/api/voice-command", json={"text": "Nahi, email ID change karo. n e w e m a i l @ g m a i l . c o m", "session_id": session_id})
+        self.assertEqual(resp2.status_code, 200)
+        data2 = resp2.json()
+        self.assertEqual(data2["state"], "AWAITING_CONFIRMATION")
+        self.assertEqual(data2["pending_transaction"]["customer"], "Goyal")
+        self.assertEqual(data2["pending_transaction"]["amount"], 2000.0)
+        self.assertEqual(data2["pending_transaction"]["email"], "newemail@gmail.com")
+
+    def test_voice_cancellation(self):
+        """Send a command, then send 'Cancel karo'. Assert DB count remains unchanged."""
+        session_id = "test_fsm_cancel"
+        db = TestingSession()
+        initial_count = db.query(Transaction).count()
+        db.close()
+
+        client.post("/api/voice-command", json={"text": "Sharma ka 1000 udhaar", "session_id": session_id})
+        resp_cancel = client.post("/api/voice-command", json={"text": "Cancel karo", "session_id": session_id})
+        self.assertEqual(resp_cancel.status_code, 200)
+        data_cancel = resp_cancel.json()
+        self.assertEqual(data_cancel["state"], "IDLE")
+
+        db = TestingSession()
+        final_count = db.query(Transaction).count()
+        db.close()
+        self.assertEqual(final_count, initial_count)
+
+    def test_voice_greeting_handling_endpoints(self):
+        """Verifies natural greetings in Hindi/Hinglish/English on both voice endpoints."""
+        greetings = ["कैसे हो", "kaise ho", "namaste", "hello", "आप कैसे हो"]
+        for g in greetings:
+            # 1. /api/voice-assistant
+            resp = client.post("/api/voice-assistant", json={"text": g, "session_id": f"sess_greet_{g}"})
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertEqual(data.get("action_taken"), "greeting")
+            self.assertFalse(data.get("requires_confirmation"))
+            self.assertIsNone(data.get("pending_operation"))
+            self.assertTrue(len(data.get("reply_message", "")) > 10)
+
+            # 2. /api/voice-command
+            resp2 = client.post("/api/voice-command", json={"text": g, "session_id": f"sess_cmd_{g}"})
+            self.assertEqual(resp2.status_code, 200)
+            data2 = resp2.json()
+            self.assertEqual(data2.get("action_taken"), "greeting")
+            self.assertEqual(data2.get("state"), "IDLE")
+            self.assertFalse(data2.get("requires_confirmation"))
+            self.assertIsNone(data2.get("pending_transaction"))
+            self.assertTrue(len(data2.get("reply_message", "")) > 10)
+
+    def test_voice_greeting_no_ledger_side_effects(self):
+        """Verifies greetings never mutate the ledger or create phantom transactions."""
+        db = TestingSession()
+        count_before = db.query(Transaction).count()
+        db.close()
+
+        client.post("/api/voice-assistant", json={"text": "कैसे हो"})
+        client.post("/api/voice-command", json={"text": "kaise ho"})
+        client.post("/api/voice-assistant", json={"text": "namaste"})
+
+        db = TestingSession()
+        count_after = db.query(Transaction).count()
+        db.close()
+        self.assertEqual(count_after, count_before)
+
+    def test_voice_hindi_hinglish_financial_terminology(self):
+        """Verifies Hindi/Hinglish spoken terminology, customer name preservation, and credit/debit distinctions."""
+        from ai_service import classify_voice_command
+
+        cases = [
+            ("Sanskar ke naam par do hazaar rupaye udhaar likh do.", "Sanskar", 2000.0, "UDHAAR"),
+            ("Sanskar ko do hazaar credit kar do.", "Sanskar", 2000.0, "UDHAAR"),
+            ("Sanskar ne paanch sau rupaye de diye.", "Sanskar", 500.0, "JAMA"),
+            ("₹2000 संस्कार के नाम पर उधर लिख दो", "संस्कार", 2000.0, "UDHAAR"),
+            ("क्रेडिट ₹2000 संस्कार", "संस्कार", 2000.0, "UDHAAR"),
+            ("संस्कार आईएस 2000 क्रेडिट", "संस्कार", 2000.0, "UDHAAR")
+        ]
+
+        for text, exp_name, exp_amt, exp_type in cases:
+            res = classify_voice_command(text)
+            self.assertEqual(res.intent, VoiceIntentType.ENTRY, f"Failed intent for: {text}")
+            self.assertEqual(res.customer_name, exp_name, f"Failed customer name for: {text}")
+            self.assertEqual(res.amount, exp_amt, f"Failed amount for: {text}")
+            self.assertEqual(res.transaction_type, exp_type, f"Failed transaction type for: {text}")
+
+    def test_voice_customer_khata_opening_and_balance(self):
+        """Verifies customer balance query and khata opening voice commands."""
+        from ai_service import classify_voice_command
+
+        res1 = classify_voice_command("Raju ka balance batao.")
+        self.assertEqual(res1.intent, VoiceIntentType.QUERY_CUSTOMER_BALANCE)
+        self.assertEqual(res1.customer_name, "Raju")
+
+        res2 = classify_voice_command("Agarwal ji ka khata kholo.")
+        self.assertEqual(res2.intent, VoiceIntentType.QUERY_CUSTOMER_BALANCE)
+        self.assertEqual(res2.customer_name, "Agarwal Ji")
+
+    def test_voice_user_complaint_and_troubleshooting(self):
+        """Verifies user complaints (e.g. 'bhai dikkat hai...') receive helpful guidance without financial mutations."""
+        from ai_service import classify_voice_command
+
+        complaint_text = "भाई दिक्कत है बहुत आ रही है"
+        res = classify_voice_command(complaint_text)
+        self.assertEqual(res.intent, VoiceIntentType.USER_FEEDBACK)
+
+        # Test through /api/voice-assistant endpoint
+        resp = client.post("/api/voice-assistant", json={"text": complaint_text})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data.get("action_taken"), "troubleshooting_help")
+        self.assertFalse(data.get("requires_confirmation"))
+        self.assertIn("dikkat", data.get("reply_message", "").lower())
+
+
+def test_voice_full_transaction():
+    suite = TestHisabAIFullSuite()
+    suite.setUp()
+    suite.test_voice_full_transaction()
+    suite.tearDown()
+
+
+def test_voice_state_bleed_prevention():
+    suite = TestHisabAIFullSuite()
+    suite.setUp()
+    suite.test_voice_state_bleed_prevention()
+    suite.tearDown()
+
+
+def test_voice_correction_flow():
+    suite = TestHisabAIFullSuite()
+    suite.setUp()
+    suite.test_voice_correction_flow()
+    suite.tearDown()
+
+
+def test_voice_cancellation():
+    suite = TestHisabAIFullSuite()
+    suite.setUp()
+    suite.test_voice_cancellation()
+    suite.tearDown()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -46,43 +46,50 @@ VOICE_INTENT_SYSTEM_PROMPT = (
     "You are the Voice AI brain for 'HisabAI', an Indian shopkeeper digital Khata ledger.\n"
     "Analyze the voice command, detect the language, and extract intent and details.\n\n"
     "Language Matching Rules:\n"
-    "- If the user speaks in English (e.g. 'Show me today's total collection', 'Record 500 credit for Ramesh'), set language to 'english'.\n"
+    "- If the user speaks in English, set language to 'english'.\n"
     "- If the user speaks in Hindi script (Devanagari), set language to 'hindi'.\n"
-    "- If the user speaks in Hinglish (e.g. 'Sharma ji ka 200 udhaar likh do'), set language to 'hinglish'.\n\n"
+    "- If the user speaks in Hinglish, set language to 'hinglish'.\n\n"
     "Available Intents:\n"
-    "- ENTRY: Recording credit given (UDHAAR) or payment received (JAMA). E.g. 'Rahul ko 500 udhaar diya', 'Ramesh ne 250 jama kiye', 'Give 500 credit to Rahul', 'Record 200 payment from Anita'.\n"
-    "- QUERY_CUSTOMER_BALANCE: Checking balance or khata of a customer. E.g. 'Sharma ji ka kitna udhaar baaki hai?', 'Rahul ka hisab check karo', 'What is Rahul\'s balance?'.\n"
-    "- QUERY_DAILY_SUMMARY: Asking for today's summary or collection. E.g. 'Show me today\'s total collection', 'Aaj kitna jama hua?', 'Aaj kitna udhaar diya?'.\n"
-    "- QUERY_DATE_RANGE_SUMMARY: Historical report. E.g. 'Kal ki report dikhao', 'Pichhle saat din ka hisab', 'Yesterday\'s summary', 'This month\'s ledger'.\n"
-    "- QUERY_CUSTOMER_LIST: Customers who owe money. E.g. 'Kis-kis customer ke paise baaki hain?', 'Who owes money?', 'Which customers have pending balance?'.\n"
-    "- QUERY_CUSTOMER_HISTORY: Transaction history. E.g. 'Raju ka purana hisaab dikhao', 'Show transaction history for Ramesh'.\n"
-    "- AMBIGUOUS_ACCOUNT_ACTION: Ambiguous phrases about ending/closing/deleting a khata or account without explicitly saying settle (e.g. 'Tausif ka khata khatam kar do', 'Ramesh ka khata band kar do', 'Close Amit\\'s account'). Must ask clarification instead of settling.\n"
-    "- SETTLE_BALANCE: Explicit instruction to settle customer balance. E.g. 'Tausif ka balance settle karo', 'Hisab settle kar do', 'Settle John\\'s balance'.\n"
-    "- NAVIGATE_VIEW: Navigating to a specific screen or view in the app. E.g. 'ledger book kholo', 'open inventory', 'customer directory dikhao', 'go to settings'. Target view must be one of: 'dashboard', 'ledger', 'customers', 'inventory', 'reminders', 'reports', 'settings', 'team', 'verifications'.\n"
-    "- CONFIRM: Explicit confirmation. E.g. 'Haan, save kar do', 'Confirm karo', 'Theek hai', 'Yes, confirm'.\n"
-    "- CANCEL: Explicit cancellation. E.g. 'Nahi, cancel kar do', 'Radd karo', 'Mat save karo', 'No, cancel it'.\n"
-    "- CORRECT_PENDING_ENTRY: Correcting details of pending transaction. E.g. '500 nahi 800', 'Amount galat hai 800 karo'.\n"
-    "- REPEAT_LAST_RESPONSE: Asking to repeat. E.g. 'Dobara sunao', 'Repeat karo', 'Pichhli entry kya thi?'.\n"
-    "- STOP_ASSISTANT: Telling assistant to sleep. E.g. 'Bas, assistant band kar do', 'Stop assistant', 'Band karo'.\n"
+    "- NEW_TRANSACTION / ENTRY: Recording credit given (UDHAAR / CREDIT) or payment received (JAMA / PAYMENT). E.g. 'Rahul ko 500 udhaar diya', 'Goyal ka 2000 udhaar', 'Ramesh ne 250 jama kiye'.\n"
+    "- CORRECTION: Correcting details of an unconfirmed or pending transaction. E.g. 'Nahin Mel ID change karo', 'Nahi, email ID change karo. newemail@gmail.com', '500 nahi 800', 'Amount 2000 karo'. Set 'correction_target' to 'email', 'amount', 'customer_name', or 'type'.\n"
+    "- CONFIRMATION / CONFIRM: Explicit confirmation. E.g. 'Haan, save kar do', 'Confirm karo', 'Theek hai', 'Yes, confirm'.\n"
+    "- CANCELLATION / CANCEL: Explicit cancellation. E.g. 'Nahi, cancel kar do', 'Radd karo', 'Mat save karo', 'No, cancel it'.\n"
+    "- QUERY_CUSTOMER_BALANCE: Checking balance or khata of a customer. E.g. 'Sharma ji ka kitna udhaar baaki hai?', 'Rahul ka hisab check karo'.\n"
+    "- QUERY_DAILY_SUMMARY: Asking for today's summary or collection. E.g. 'Show me today\'s total collection', 'Aaj kitna jama hua?'.\n"
+    "- QUERY_DATE_RANGE_SUMMARY: Historical report. E.g. 'Kal ki report dikhao', 'Pichhle saat din ka hisab'.\n"
+    "- QUERY_CUSTOMER_LIST: Customers who owe money. E.g. 'Kis-kis customer ke paise baaki hain?'.\n"
+    "- QUERY_CUSTOMER_HISTORY: Transaction history. E.g. 'Raju ka purana hisaab dikhao'.\n"
+    "- AMBIGUOUS_ACCOUNT_ACTION: Ambiguous phrases about ending/closing/deleting a khata or account without explicitly saying settle (e.g. 'Tausif ka khata khatam kar do'). Must ask clarification instead of settling.\n"
+    "- SETTLE_BALANCE: Explicit instruction to settle customer balance. E.g. 'Tausif ka balance settle karo'.\n"
+    "- NAVIGATE_VIEW: Navigating to a specific screen in the app. E.g. 'ledger book kholo', 'open inventory'.\n"
+    "- REPEAT_LAST_RESPONSE: Asking to repeat. E.g. 'Dobara sunao', 'Repeat karo'.\n"
+    "- STOP_ASSISTANT: Telling assistant to sleep. E.g. 'Bas, assistant band kar do'.\n"
+    "- GREETING: Common greetings like 'कैसे हो', 'kaise ho', 'namaste', 'hello', 'kya haal hai'. Return intent 'GREETING' with friendly clarification_message explaining you can help with balances, credit/payment entries, and summaries.\n"
     "- UNKNOWN: Anything unrelated or ambiguous.\n\n"
-    "Contextual Clarifications (Instead of generic 'Aapne kya kaha'):\n"
-    "- If customer name is missing for an entry command: set intent to 'UNKNOWN', and clarification_message:\n"
-    "  * Hindi/Hinglish: 'Kaunse customer ke naam par likhna hai?'\n"
-    "  * English: 'Which customer should I record this for?'\n"
-    "- If amount is missing: set intent to 'UNKNOWN', and clarification_message:\n"
-    "  * Hindi/Hinglish: 'Ek baar amount dobara bata dena. Kitne rupaye likhne hain?'\n"
-    "  * English: 'How much amount should I record?'\n"
-    "- If transaction type (credit vs payment) is unclear: set intent to 'UNKNOWN', and clarification_message:\n"
-    "  * Hindi/Hinglish: 'Aap udhaar likhwana chahte hain ya jama entry karwani hai?'\n"
-    "  * English: 'Do you want to record credit (udhaar) or payment received (jama)?'\n\n"
-    "Rules:\n"
-    "- If goods/credit was given, transaction_type is 'UDHAAR'.\n"
-    "- If payment/cash was received/given back, transaction_type is 'JAMA'.\n"
-    "- Return ONLY valid JSON in this schema:\n"
-    '{"intent": "ENTRY"|"QUERY_CUSTOMER_BALANCE"|"QUERY_CUSTOMER_HISTORY"|"QUERY_DAILY_SUMMARY"|"QUERY_DATE_RANGE_SUMMARY"|"QUERY_CUSTOMER_LIST"|"AMBIGUOUS_ACCOUNT_ACTION"|"SETTLE_BALANCE"|"NAVIGATE_VIEW"|"CONFIRM"|"CANCEL"|"CORRECT_PENDING_ENTRY"|"REPEAT_LAST_RESPONSE"|"STOP_ASSISTANT"|"UNKNOWN", '
-    '"customer_name": "string or null", "amount": number or null, "transaction_type": "UDHAAR"|"JAMA"|null, "target_view": "dashboard"|"ledger"|"customers"|"inventory"|"reminders"|"reports"|"settings"|"team"|"verifications"|null, '
-    '"date_filter": "today"|"yesterday"|"last_7_days"|"this_month"|null, "corrected_amount": number or null, '
-    '"clarification_message": "string or null", "language": "hindi"|"hinglish"|"english"}'
+    "Context Awareness Rules:\n"
+    "- When Active Context shows state 'AWAITING_CONFIRMATION', interpret modification phrases ('nahi email badlo', 'change amount', 'mel id change karo') as 'CORRECTION'.\n"
+    "- If amount is missing in a new transaction: set intent to 'UNKNOWN', with clarification_message: 'Kitna amount likhna hai?'\n"
+    "- If customer name is missing: set clarification_message: 'Kaunse customer ke naam par likhna hai?'\n\n"
+    "Return ONLY valid JSON in this schema:\n"
+    '{\n'
+    '  "intent": "NEW_TRANSACTION"|"CORRECTION"|"CONFIRMATION"|"CANCELLATION"|"QUERY_CUSTOMER_BALANCE"|"QUERY_CUSTOMER_HISTORY"|"QUERY_DAILY_SUMMARY"|"QUERY_DATE_RANGE_SUMMARY"|"QUERY_CUSTOMER_LIST"|"AMBIGUOUS_ACCOUNT_ACTION"|"SETTLE_BALANCE"|"NAVIGATE_VIEW"|"REPEAT_LAST_RESPONSE"|"STOP_ASSISTANT"|"GREETING"|"UNKNOWN",\n'
+    '  "correction_target": "email"|"amount"|"customer_name"|"type"|null,\n'
+    '  "entities": {\n'
+    '    "customer_name": "string or null",\n'
+    '    "amount": number or null,\n'
+    '    "email": "string or null",\n'
+    '    "type": "CREDIT"|"PAYMENT"|null\n'
+    '  },\n'
+    '  "customer_name": "string or null",\n'
+    '  "amount": number or null,\n'
+    '  "customer_email": "string or null",\n'
+    '  "transaction_type": "UDHAAR"|"JAMA"|null,\n'
+    '  "target_view": "dashboard"|"ledger"|"customers"|"inventory"|"reminders"|"reports"|"settings"|"team"|"verifications"|null,\n'
+    '  "date_filter": "today"|"yesterday"|"last_7_days"|"this_month"|null,\n'
+    '  "corrected_amount": number or null,\n'
+    '  "clarification_message": "string or null",\n'
+    '  "language": "hindi"|"hinglish"|"english"\n'
+    '}'
 )
 
 # Modern Google Gemma & Gemini models supported by Google GenAI v1beta API
@@ -231,16 +238,17 @@ ENGLISH_NUMBER_WORDS = {
 HINDI_NUMBER_WORDS = {
     # ── Devanagari composites (most specific first) ─────────────────────────
     # NOTE: \b does not match Unicode word boundaries in Python re; using (?<![\w\u0900-\u097F]) style instead
-    r"(?<![\u0900-\u097F\w])दस\s*हजार(?![\u0900-\u097F\w])": "10000",
-    r"(?<![\u0900-\u097F\w])पाँच\s*हजार(?![\u0900-\u097F\w])": "5000",
-    r"(?<![\u0900-\u097F\w])पांच\s*हजार(?![\u0900-\u097F\w])": "5000",
-    r"(?<![\u0900-\u097F\w])तीन\s*हजार(?![\u0900-\u097F\w])": "3000",
-    r"(?<![\u0900-\u097F\w])दो\s*हजार\s*पाँच\s*सौ(?![\u0900-\u097F\w])": "2500",
-    r"(?<![\u0900-\u097F\w])दो\s*हजार\s*पांच\s*सौ(?![\u0900-\u097F\w])": "2500",
-    r"(?<![\u0900-\u097F\w])दो\s*हजार(?![\u0900-\u097F\w])": "2000",
-    r"(?<![\u0900-\u097F\w])एक\s*हजार\s*पाँच\s*सौ(?![\u0900-\u097F\w])": "1500",
-    r"(?<![\u0900-\u097F\w])एक\s*हजार\s*पांच\s*सौ(?![\u0900-\u097F\w])": "1500",
-    r"(?<![\u0900-\u097F\w])एक\s*हजार(?![\u0900-\u097F\w])": "1000",
+    r"(?<![\u0900-\u097F\w])दस\s*हज़?ार(?![\u0900-\u097F\w])": "10000",
+    r"(?<![\u0900-\u097F\w])पाँच\s*हज़?ार(?![\u0900-\u097F\w])": "5000",
+    r"(?<![\u0900-\u097F\w])पांच\s*हज़?ार(?![\u0900-\u097F\w])": "5000",
+    r"(?<![\u0900-\u097F\w])चार\s*हज़?ार(?![\u0900-\u097F\w])": "4000",
+    r"(?<![\u0900-\u097F\w])तीन\s*हज़?ार(?![\u0900-\u097F\w])": "3000",
+    r"(?<![\u0900-\u097F\w])दो\s*हज़?ार\s*पाँच\s*सौ(?![\u0900-\u097F\w])": "2500",
+    r"(?<![\u0900-\u097F\w])दो\s*हज़?ार\s*पांच\s*सौ(?![\u0900-\u097F\w])": "2500",
+    r"(?<![\u0900-\u097F\w])दो\s*हज़?ार(?![\u0900-\u097F\w])": "2000",
+    r"(?<![\u0900-\u097F\w])एक\s*हज़?ार\s*पाँच\s*सौ(?![\u0900-\u097F\w])": "1500",
+    r"(?<![\u0900-\u097F\w])एक\s*हज़?ार\s*पांच\s*सौ(?![\u0900-\u097F\w])": "1500",
+    r"(?<![\u0900-\u097F\w])एक\s*हज़?ार(?![\u0900-\u097F\w])": "1000",
     # Devanagari hundreds
     r"ढाई\s*सौ": "250",
     r"डेढ़\s*सौ": "150",
@@ -249,6 +257,7 @@ HINDI_NUMBER_WORDS = {
     r"आठ\s*सौ": "800",
     r"सात\s*सौ": "700",
     r"पाँच\s*सौ\s*पचास": "550",
+    r"पांच\s*सौ\s*पचास": "550",
     r"पाँच\s*सौ": "500",
     r"पांच\s*सौ": "500",
     r"चार\s*सौ": "400",
@@ -258,18 +267,20 @@ HINDI_NUMBER_WORDS = {
     r"(?<![\u0900-\u097F\w])पचास(?![\u0900-\u097F\w])": "50",
     r"(?<![\u0900-\u097F\w])सौ(?![\u0900-\u097F\w])": "100",
     # ── Latin transliterations (composites first) ───────────────────────────
-    r"\b(?:ek|1)\s*hazaar\s*(?:ek|1)\s*sau\b": "1100",
-    r"\b(?:ek|1)\s*hazaar\s*(?:do|2)\s*sau\b": "1200",
-    r"\b(?:ek|1)\s*hazaar\s*(?:teen|3)\s*sau\b": "1300",
-    r"\b(?:ek|1)\s*hazaar\s*(?:char|chaar|4)\s*sau\b": "1400",
-    r"\b(?:ek|1)\s*hazaar\s*(?:paanch|panch|5)\s*sau\b": "1500",
-    r"\b(?:do|2)\s*hazaar\s*(?:paanch|panch|5)\s*sau\b": "2500",
+    r"\b(?:ek|1)\s*haza?ar\s*(?:ek|1)\s*sau\b": "1100",
+    r"\b(?:ek|1)\s*haza?ar\s*(?:do|2)\s*sau\b": "1200",
+    r"\b(?:ek|1)\s*haza?ar\s*(?:teen|3)\s*sau\b": "1300",
+    r"\b(?:ek|1)\s*haza?ar\s*(?:char|chaar|4)\s*sau\b": "1400",
+    r"\b(?:ek|1)\s*haza?ar\s*(?:paanch|panch|5)\s*sau\b": "1500",
+    r"\b(?:do|2)\s*haza?ar\s*(?:paanch|panch|5)\s*sau\b": "2500",
     # Thousands
-    r"\b(ek|1)\s*hazaar\b": "1000",
-    r"\b(do|2)\s*hazaar\b": "2000",
-    r"\b(teen|3)\s*hazaar\b": "3000",
-    r"\b(paanch|panch|5)\s*hazaar\b": "5000",
-    r"\bdas\s*hazaar\b": "10000",
+    r"\b(ek|1)\s*haza?ar\b": "1000",
+    r"\b(do|2)\s*haza?ar\b": "2000",
+    r"\b(teen|3)\s*haza?ar\b": "3000",
+    r"\b(char|chaar|4)\s*haza?ar\b": "4000",
+    r"\b(paanch|panch|5)\s*haza?ar\b": "5000",
+    r"\bdas\s*haza?ar\b": "10000",
+    r"\b(dus|10)\s*haza?ar\b": "10000",
     # Hundreds
     r"\bpaanch\s*sau\s*pachaas\b": "550",
     r"\bpaanch\s*sau\b": "500",
@@ -384,17 +395,73 @@ def strip_wake_word(text: str) -> str:
 def extract_email_from_text(raw_text: str) -> Optional[str]:
     """
     Extracts an email address from spoken or written text.
-    Handles spoken speech variants such as 'at' and 'dot'.
+    Handles spoken speech variants ('at the rate', 'at', 'dot', 'dash', 'underscore'),
+    spaced letter spelling (e.g. 'a g a r w a l 123456k@gmail.com', 'm o h i t @ g m a i l . c o m'),
+    and strips trailing conversational words.
     """
     if not raw_text:
         return None
-    # Normalize spoken equivalents
     t = raw_text.lower()
-    t = re.sub(r"\s+at\s+", "@", t)
-    t = re.sub(r"\s+dot\s+", ".", t)
-    m = re.search(r"([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)", t)
-    if m:
-        return m.group(1).lower().strip()
+    t = re.sub(r"\bat\s+the\s+rate\b|\bat\s+rate\b|\battherate\b|\bat\b", "@", t)
+    t = re.sub(r"\bdot\b", ".", t)
+    t = re.sub(r"\bdash\b|\bhyphen\b", "-", t)
+    t = re.sub(r"\bunderscore\b", "_", t)
+
+    if "@" not in t:
+        return None
+
+    parts = t.split("@", 1)
+    before_at = parts[0]
+    after_at = parts[1]
+
+    # Clean domain chars
+    domain_chars = []
+    tld_found = False
+    for char in after_at:
+        if char.isalnum() or char in ".-_":
+            domain_chars.append(char)
+        elif char.isspace():
+            continue
+        else:
+            break
+        curr = "".join(domain_chars)
+        if (curr.endswith(".com") or curr.endswith(".org") or curr.endswith(".net") or
+            curr.endswith(".edu") or curr.endswith(".gov") or curr.endswith(".in") or
+            curr.endswith(".io") or curr.endswith(".ai")):
+            tld_found = True
+            break
+
+    domain = "".join(domain_chars) if tld_found else ""
+    if not domain:
+        m_dom = re.search(r"^\s*([a-z0-9.-]+\.[a-z]{2,10})", after_at)
+        domain = m_dom.group(1) if m_dom else ""
+
+    # Clean username part (look backwards from @ for boundary / stop-words)
+    stop_words = {
+        "email", "id", "mel", "mail", "karo", "change", "badlo", "badal", "hai",
+        "ki", "ko", "ka", "ke", "likho", "likh", "update", "ji", "to", "is",
+        "address", "nahi", "nahin", "nhi", "aur", "and", "mein", "par", "bhejo",
+        "send", "kar", "do", "batao", "sunao", "rakho", "dal", "daalo"
+    }
+
+    raw_tokens = [tok for tok in re.split(r"[\s,;:?!]+", before_at) if tok]
+    user_pieces = []
+    for tok in reversed(raw_tokens):
+        cleaned = tok.strip(".,;:?!-")
+        if cleaned in stop_words:
+            break
+        user_pieces.insert(0, cleaned)
+
+    if not user_pieces and raw_tokens:
+        user_pieces = [raw_tokens[-1].strip(".,;:?!-")]
+
+    user = "".join(user_pieces)
+    if not user or not domain:
+        return None
+
+    candidate = f"{user}@{domain}".lower()
+    if re.match(r"^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$", candidate):
+        return candidate
     return None
 
 
@@ -406,6 +473,87 @@ def fast_match_voice_intent(raw_text: str) -> Optional[VoiceIntentResult]:
     """
     text = strip_wake_word(raw_text).strip().lower()
     lang = detect_input_language(text)
+
+    # 0A. Direct amount correction fast path (e.g., "500 nahi, 800" or "400 nahi 600", "nahi amount 2000 hai")
+    correction_match = re.search(r"(?:(\d+)\s*(?:nahi|nhi|ke badle|ki jagah|not|instead of)\s*)?(\d+(?:\.\d{1,2})?)\s*(?:rupaye|rs|₹|rupees)?(?:\s*karo|\s*likho|\s*hai|\s*make it)?$", text)
+    if correction_match and any(w in text for w in ("nahi", "nhi", "badle", "jagah", "not", "instead")):
+        new_amt = float(correction_match.group(2))
+        return VoiceIntentResult(
+            intent=VoiceIntentType.CORRECT_PENDING_ENTRY,
+            correction_target="amount",
+            amount=new_amt,
+            corrected_amount=new_amt,
+            entities={"amount": new_amt},
+            language=lang
+        )
+
+    # 0B. Email Correction fast path (e.g. "Nahin Mel ID change karo", "Nahi, email ID change karo. newemail@gmail.com")
+    extracted_email = extract_email_from_text(raw_text)
+    is_email_corr = any(w in text for w in (
+        "change email", "email change", "mel id change", "email id change", "email badlo", "email id badlo"
+    )) or (
+        any(w in text for w in ("change", "badlo", "badal", "update")) and any(w in text for w in ("email", "mel", "mail"))
+    ) or (
+        any(w in text for w in ("nahi", "nahin", "nhi", "not")) and (
+            any(w in text for w in ("email", "mel", "mail")) or
+            extracted_email is not None
+        )
+    )
+
+    if is_email_corr:
+        return VoiceIntentResult(
+            intent=VoiceIntentType.CORRECTION,
+            correction_target="email",
+            customer_email=extracted_email,
+            entities={"email": extracted_email},
+            clarification_message="Kripya nayi email ID bataiye." if not extracted_email else None,
+            language=lang
+        )
+
+    # 0C. Conversational Greetings (e.g. "कैसे हो", "kaise ho", "namaste", "hello", "kya haal hai", "how are you")
+    clean_no_punct = re.sub(r"[^\w\s\u0900-\u097F]", "", text).strip().lower()
+    greeting_patterns = (
+        "kaise ho", "kaisa hai", "kaise hain", "kya haal hai", "kya hal hai", "namaste", "namaskar",
+        "hello", "hi", "hey", "good morning", "good evening", "good afternoon", "how are you", "who are you",
+        "कैसे हो", "कैसे हैं", "नमस्ते", "नमस्कार", "क्या हाल है", "हेलो", "हाय", "आप कैसे हो", "आप कैसे हैं"
+    )
+    is_greeting = (
+        clean_no_punct in greeting_patterns
+        or any(clean_no_punct.startswith(g + " ") for g in ("hello", "namaste", "namaskar", "hi", "hey", "नमस्ते", "नमस्कार", "हेलो", "हाय"))
+        or any(phrase in clean_no_punct for phrase in (
+            "kaise ho", "kaisa hai", "kaise hain", "kya haal", "kya hal", "how are you", "who are you",
+            "कैसे हो", "कैसे हैं", "क्या हाल"
+        ))
+    )
+    if is_greeting:
+        msg = (
+            "Hello! I am doing well. I am your HisabAI ledger assistant. I can help you check customer balances, record credit or payments, or view your daily summary."
+            if lang == "english" else
+            "Namaste! Main badhiya hoon. Main aapka HisabAI khata assistant hoon. Aap mujhse customer ka hisab pooch sakte hain, naya udhaar ya jama entry likhwa sakte hain, ya aaj ka summary dekh sakte hain."
+        )
+        return VoiceIntentResult(
+            intent=VoiceIntentType.GREETING,
+            clarification_message=msg,
+            language=lang
+        )
+
+    # 0D. User Complaints & Troubleshooting Assistance
+    complaint_keywords = (
+        "दिक्कत", "dikkat", "pareshani", "परेशानी", "problem", "kaam nahi kar raha",
+        "samajh nahi", "galat samajh", "not working", "facing issue", "kuch samajh nahi",
+        "galat likh", "samajh nahi pa raha", "bhai dikkat"
+    )
+    if any(w in text for w in complaint_keywords):
+        msg = (
+            "Kshama kijiye! Agar voice assistant ko samajhne mein dikkat ho rahi hai, "
+            "toh kripya dheere aur saaf aawaz mein customer ka naam, amount aur udhaar ya jama bolein. "
+            "Aap screen par diye gaye buttons aur manual form se bhi hisab likh sakte hain."
+        )
+        return VoiceIntentResult(
+            intent=VoiceIntentType.USER_FEEDBACK,
+            clarification_message=msg,
+            language=lang
+        )
 
     # 1. Confirmation fast path
     confirm_phrases = (
@@ -423,7 +571,7 @@ def fast_match_voice_intent(raw_text: str) -> Optional[VoiceIntentResult]:
         "mat karo", "mat save karo", "nahi cancel kar do", "nahi mat karo", "nahi cancel karo",
         "no cancel", "don't save", "cancel it", "cancel transaction", "abort"
     )
-    if text in cancel_phrases or text.startswith("nahi ") or text.startswith("cancel ") or text.startswith("no "):
+    if not is_email_corr and (text in cancel_phrases or text.startswith("nahi ") or text.startswith("cancel ") or text.startswith("no ")):
         return VoiceIntentResult(intent=VoiceIntentType.CANCEL, language=lang)
 
     # 3. Stop assistant fast path
@@ -442,15 +590,16 @@ def fast_match_voice_intent(raw_text: str) -> Optional[VoiceIntentResult]:
             intent=VoiceIntentType.CORRECT_PENDING_ENTRY,
             amount=new_amt,
             corrected_amount=new_amt,
+            entities={"amount": new_amt},
             language=lang
         )
 
     # 6. Spoken Email Submission Fast Path (e.g., "sharma@gmail.com", "email sharma@example.com", "sharma at gmail dot com")
-    extracted_email = extract_email_from_text(raw_text)
     if extracted_email and not any(k in text for k in ("udhaar", "jama", "credit", "payment", "likho", "likh do")):
         return VoiceIntentResult(
             intent=VoiceIntentType.PROVIDE_EMAIL,
             customer_email=extracted_email,
+            entities={"email": extracted_email},
             language=lang
         )
 
@@ -569,7 +718,15 @@ def fast_match_voice_intent(raw_text: str) -> Optional[VoiceIntentResult]:
             language=lang
         )
 
-    # 9. Customer Balance Query Fast Path (e.g., "Sharma ji ka balance batao", "Rahul ka hisab")
+    # 9. Customer Balance & Khata Query Fast Path (e.g., "Sharma ji ka balance batao", "Rahul ka hisab", "Agarwal ji ka khata kholo")
+    khata_open_m = re.search(r"([A-Za-z\u0900-\u097F]+(?:\s+ji)?)\s+(?:ka|ki|ke|का|की|के)\s+(?:khata|hisaab|hisab|खाता|हिसाब)\s+(?:kholo|dikhao|batao|खोलो|दिखाओ|बताओ)", text)
+    if khata_open_m and khata_open_m.group(1).lower() not in ("aaj", "kal", "parso", "today"):
+        return VoiceIntentResult(
+            intent=VoiceIntentType.QUERY_CUSTOMER_BALANCE,
+            customer_name=khata_open_m.group(1).title(),
+            language=lang
+        )
+
     if any(q in text for q in ("balance batao", "balance bata", "ka balance", "kitna baaki", "kitna baki")):
         m_bal = re.search(r"([a-zA-Z\u0900-\u097F]+(?:\s+ji)?)\s+(?:ka|ki|ke)?\s*(?:balance|kitna baaki|kitna baki)", text)
         if m_bal and m_bal.group(1).lower() not in ("aaj", "kal", "parso", "today"):
@@ -579,38 +736,69 @@ def fast_match_voice_intent(raw_text: str) -> Optional[VoiceIntentResult]:
                 language=lang
             )
 
-    # 10. Hinglish Entry Fast Path
-    # Handles: "Sharma ji ka 200 rupaye udhaar likh do", "Ramesh ne 500 rupaye jama karaye",
-    #          "Gupta ji ke naam par 1200 ka udhaar add karo", "Raju ko 300 udhaar diya",
-    #          "record 500 credit for Rahul", "Rahul paid 500"
-    has_udhaar = any(k in text for k in ("udhaar", "udhar", "credit", "diye", "diya"))
-    has_jama = any(k in text for k in ("jama", "payment", "paid", "karaye", "aaye", "aaya"))
-    if has_udhaar or has_jama:
-        entry_type = "UDHAAR" if has_udhaar else "JAMA"
+    # 10. Hinglish & Hindi Entry Fast Path
+    # Handles: "₹2000 संस्कार के नाम पर उधर लिख दो", "संस्कार आईएस 2000 क्रेडिट", "क्रेडिट ₹2000 संस्कार",
+    #          "Sanskar ke naam par do hazaar rupaye udhaar likh do", "Sanskar ko do hazaar credit kar do",
+    #          "Sanskar ne paanch sau rupaye de diye", "Ramesh ne 500 rupaye jama karaye",
+    #          "Gupta ji ke naam par 1200 ka udhaar add karo", "Raju ko 300 udhaar diya"
+    has_udhaar = any(k in text for k in ("udhaar", "udhar", "credit", "उधार", "उधर", "क्रेडिट", "उधारी", "diya"))
+    has_jama = any(k in text for k in ("jama", "payment", "paid", "karaye", "aaye", "aaya", "जमा", "पेमेंट", "कराए", "आए", "आया", "de diye", "दे दिए")) or bool(re.search(r"\bne\b.*?\b(?:diye|diya|de\s*diye)\b", text)) or bool(re.search(r"ने\s+.*?दिए", text))
+    is_ko_diya = bool(re.search(r"\bko\b.*?\b(?:diye|diya)\b", text)) or bool(re.search(r"को\s+.*?दिए", text))
+
+    if has_udhaar or has_jama or is_ko_diya:
+        if has_jama and not has_udhaar and not is_ko_diya:
+            entry_type = "JAMA"
+        elif has_udhaar and not has_jama:
+            entry_type = "UDHAAR"
+        elif is_ko_diya and not has_jama:
+            entry_type = "UDHAAR"
+        elif any(k in text for k in ("credit", "udhaar", "udhar", "क्रेडिट", "उधार", "उधर")):
+            entry_type = "UDHAAR"
+        else:
+            entry_type = "JAMA"
+
         # Strip out email portion if present so amount doesn't match digits in email
         text_no_email = re.sub(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", "", text)
         amt_match = re.search(r"(\d+(?:\.\d{1,2})?)", text_no_email)
         entry_amt = float(amt_match.group(1)) if amt_match else None
 
         name = None
-        # Pattern A: "Gupta ji ke naam par 1200 ka udhaar add karo"
-        m_naam = re.search(r"^([a-zA-Z\u0900-\u097F]+(?:\s+ji)?)\s+ke\s+naam\s+par", text_no_email)
-        if m_naam:
-            name = m_naam.group(1).title()
+        # Pattern 1: Leading keyword: 'क्रेडिट 2000 संस्कार' or 'उधार 500 राहुल'
+        m_lead_kw = re.search(r"^(?:क्रेडिट|उधार|उधर|जमा|पेमेंट|credit|payment|udhaar|udhar|jama)\s*(?:₹|rs\.?)?\s*\d+(?:\.\d{1,2})?\s*(?:rupaye|rs|₹|रुपये)?\s+([A-Za-z\u0900-\u097F]+(?:\s+ji)?)$", text_no_email, re.IGNORECASE)
+        if m_lead_kw:
+            name = m_lead_kw.group(1).title()
 
-        # Pattern B: "Sharma ji ka 200 ...", "Ramesh ne 500 ...", "Raju ko 300 ..."
+        # Pattern 2: Leading amount: '2000 संस्कार के नाम पर उधर लिख दो'
         if not name:
-            m_hi = re.search(r"^([a-zA-Z\u0900-\u097F]+(?:\s+ji)?)\s+(?:ka|ko|ne|ke)?", text_no_email)
-            if m_hi and m_hi.group(1).lower() not in ("udhaar", "jama", "credit", "payment", "record", "give", "add", "ek", "do"):
+            m_amt_lead = re.search(r"^\d+(?:\.\d{1,2})?\s*(?:rupaye|rs|₹|रुपये)?\s+([A-Za-z\u0900-\u097F]+(?:\s+ji)?)\s+(?:ke\s+naam\s+par|के\s+नाम\s+पर)", text_no_email, re.IGNORECASE)
+            if m_amt_lead:
+                name = m_amt_lead.group(1).title()
+
+        # Pattern 3: Leading customer with 'ke naam par': 'Gupta ji ke naam par 1200 ka udhaar add karo'
+        if not name:
+            m_naam = re.search(r"^([a-zA-Z\u0900-\u097F]+(?:\s+ji)?)\s+(?:ke\s+naam\s+par|के\s+नाम\s+पर)", text_no_email, re.IGNORECASE)
+            if m_naam:
+                name = m_naam.group(1).title()
+
+        # Pattern 4: Customer with particle or noise before amount: 'संस्कार आईएस 2000 क्रेडिट', 'Sanskar ko 2000 credit kar do'
+        if not name:
+            m_cust_amt = re.search(r"^([A-Za-z\u0900-\u097F]+(?:\s+ji)?)\s+(?:आईएस|is|ko|ka|ke|ne|को|का|के|ने)?\s*(?:₹|rs\.?)?\s*(\d+(?:\.\d{1,2})?)", text_no_email, re.IGNORECASE)
+            if m_cust_amt and m_cust_amt.group(1).lower() not in ("udhaar", "jama", "credit", "payment", "record", "give", "क्रेडिट", "उधार", "उधर", "जमा", "पेमेंट"):
+                name = m_cust_amt.group(1).title()
+
+        # Pattern 5: Leading name with 'ka/ko/ne/ke': 'Sharma ji ka 200 ...', 'Ramesh ne 500 ...'
+        if not name:
+            m_hi = re.search(r"^([a-zA-Z\u0900-\u097F]+(?:\s+ji)?)\s+(?:ka|ko|ne|ke|को|का|के|ने)?", text_no_email, re.IGNORECASE)
+            if m_hi and m_hi.group(1).lower() not in ("udhaar", "jama", "credit", "payment", "record", "give", "add", "ek", "do", "क्रेडिट", "उधार", "उधर", "जमा", "पेमेंट"):
                 name = m_hi.group(1).title()
 
-        # Pattern C: English "record 500 credit for Rahul" / "give 500 credit to Rahul"
+        # Pattern 6: English 'record 500 credit for Rahul' / 'give 500 credit to Rahul'
         if not name or name.lower() in ("record", "give", "add"):
-            m_en = re.search(r"(?:for|to|from)\s+([A-Za-z\u0900-\u097F]+(?:\s+ji)?)", text_no_email)
+            m_en = re.search(r"(?:for|to|from)\s+([A-Za-z\u0900-\u097F]+(?:\s+ji)?)", text_no_email, re.IGNORECASE)
             if m_en:
                 name = m_en.group(1).title()
             else:
-                m_lead = re.search(r"^([A-Za-z\u0900-\u097F]+(?:\s+ji)?)\s+(?:paid|gave|credit|payment)", text_no_email)
+                m_lead = re.search(r"^([A-Za-z\u0900-\u097F]+(?:\s+ji)?)\s+(?:paid|gave|credit|payment)", text_no_email, re.IGNORECASE)
                 if m_lead:
                     name = m_lead.group(1).title()
 
@@ -746,8 +934,11 @@ def classify_voice_command(user_text: str, context: Optional[dict] = None) -> Vo
     if not cleaned_input or len(cleaned_input) < 2:
         return VoiceIntentResult(intent=VoiceIntentType.UNKNOWN, clarification_message="Aapne kya kaha, main samajh nahi paaya. Kripya dobara bolein.")
 
-    # 1. Fast path match
-    fast_match = fast_match_voice_intent(cleaned_input)
+    # 1. Normalize numbers and currency symbols first (e.g. 'do hazaar' -> '2000', '₹2000' -> '2000')
+    normalized_input = normalize_hindi_number_words(cleaned_input)
+
+    # 2. Fast path match on normalized input
+    fast_match = fast_match_voice_intent(normalized_input)
     if fast_match:
         return fast_match
 
@@ -774,8 +965,20 @@ def classify_voice_command(user_text: str, context: Optional[dict] = None) -> Vo
     processed_text = normalize_hindi_number_words(cleaned_input)
 
     context_prompt = ""
-    if context and context.get("pending_customer"):
-        context_prompt = f"Active Context: Pending entry for customer '{context.get('pending_customer')}' of ₹{context.get('pending_amount')}.\n"
+    if context:
+        state = context.get("state", "AWAITING_CONFIRMATION" if (context.get("customer") or context.get("pending_customer")) else "IDLE")
+        cust = context.get("customer") or context.get("pending_customer")
+        amt = context.get("amount") or context.get("pending_amount")
+        em = context.get("email") or context.get("customer_email") or context.get("pending_email")
+        t_type = context.get("type") or context.get("transaction_type")
+        context_prompt = (
+            f"Active Context:\n"
+            f"- State: {state}\n"
+            f"- Pending Transaction: customer='{cust}', amount={amt}, email='{em}', type='{t_type}'\n"
+            f"If the user is correcting the pending transaction (e.g. changing email, amount, or customer), "
+            f"set intent to 'CORRECTION', specify 'correction_target' ('email'|'amount'|'customer_name'|'type'), "
+            f"and return the updated entity in 'entities'.\n"
+        )
 
     full_prompt = (
         f"{VOICE_INTENT_SYSTEM_PROMPT}\n\n"
@@ -819,6 +1022,30 @@ def classify_voice_command(user_text: str, context: Optional[dict] = None) -> Vo
 
     try:
         data = json.loads(cleaned_json_str)
+
+        if "entities" in data and isinstance(data["entities"], dict):
+            ents = data["entities"]
+            if not data.get("customer_name") and ents.get("customer_name"):
+                data["customer_name"] = ents["customer_name"]
+            if data.get("amount") is None and ents.get("amount") is not None:
+                data["amount"] = ents["amount"]
+            if not data.get("customer_email") and ents.get("email"):
+                data["customer_email"] = ents["email"]
+            if not data.get("transaction_type") and ents.get("type"):
+                data["transaction_type"] = "UDHAAR" if ents.get("type") in ("CREDIT", "UDHAAR") else "JAMA"
+
+        intent_str = str(data.get("intent", "")).upper()
+        if intent_str in ("NEW_TRANSACTION", "ENTRY"):
+            data["intent"] = VoiceIntentType.NEW_TRANSACTION.value
+        elif intent_str in ("CORRECTION", "CORRECT_PENDING_ENTRY"):
+            data["intent"] = VoiceIntentType.CORRECTION.value
+        elif intent_str in ("CONFIRMATION", "CONFIRM"):
+            data["intent"] = VoiceIntentType.CONFIRMATION.value
+        elif intent_str in ("CANCELLATION", "CANCEL"):
+            data["intent"] = VoiceIntentType.CANCELLATION.value
+        elif intent_str == "GREETING":
+            data["intent"] = VoiceIntentType.GREETING.value
+
         # Fix any string numbers
         if "amount" in data and isinstance(data["amount"], str):
             try:
@@ -855,6 +1082,84 @@ def fallback_heuristic_intent(text: str) -> VoiceIntentResult:
     lower = text.lower()
     lang = detect_input_language(text)
     is_en = (lang == "english")
+
+    # 00. Correction Intent (e.g. "Nahi, email ID change karo", "Sharma ka amount 2000 karo", "500 nahi 800")
+    extracted_email = extract_email_from_text(text)
+    is_corr = any(w in lower for w in (
+        "change", "badlo", "badal", "mel id", "email id", "instead", "ke badle", "ki jagah"
+    )) or (
+        any(w in lower for w in ("nahi", "nahin", "nhi", "not")) and (
+            any(w in lower for w in ("email", "mel", "mail", "amount", "rupaye", "badlo", "change")) or
+            extracted_email is not None or
+            bool(re.search(r"\d+", lower))
+        )
+    )
+    if is_corr:
+        if extracted_email or any(w in lower for w in ("email", "mel", "mail")):
+            return VoiceIntentResult(
+                intent=VoiceIntentType.CORRECTION,
+                correction_target="email",
+                customer_email=extracted_email,
+                entities={"email": extracted_email},
+                clarification_message="Kripya nayi email ID bataiye." if not extracted_email else None,
+                language=lang
+            )
+        m_amt = re.search(r"(?:amount\s*(?:badlo|change|karo|hai)?\s*)?(\d+(?:\.\d{1,2})?)\s*(?:rupaye|rs|₹|rupees)?", lower)
+        if m_amt:
+            amt = float(m_amt.group(1))
+            return VoiceIntentResult(
+                intent=VoiceIntentType.CORRECTION,
+                correction_target="amount",
+                amount=amt,
+                corrected_amount=amt,
+                entities={"amount": amt},
+                language=lang
+            )
+
+    # 00B. Conversational Greeting (e.g. "कैसे हो", "kaise ho", "namaste", "hello")
+    clean_no_punct = re.sub(r"[^\w\s\u0900-\u097F]", "", lower).strip().lower()
+    greeting_patterns = (
+        "kaise ho", "kaisa hai", "kaise hain", "kya haal hai", "kya hal hai", "namaste", "namaskar",
+        "hello", "hi", "hey", "good morning", "good evening", "good afternoon", "how are you", "who are you",
+        "कैसे हो", "कैसे हैं", "नमस्ते", "नमस्कार", "क्या हाल है", "हेलो", "हाय", "आप कैसे हो", "आप कैसे हैं"
+    )
+    is_greeting = (
+        clean_no_punct in greeting_patterns
+        or any(clean_no_punct.startswith(g + " ") for g in ("hello", "namaste", "namaskar", "hi", "hey", "नमस्ते", "नमस्कार", "हेलो", "हाय"))
+        or any(phrase in clean_no_punct for phrase in (
+            "kaise ho", "kaisa hai", "kaise hain", "kya haal", "kya hal", "how are you", "who are you",
+            "कैसे हो", "कैसे हैं", "क्या हाल"
+        ))
+    )
+    if is_greeting:
+        msg = (
+            "Hello! I am doing well. I am your HisabAI ledger assistant. I can help you check customer balances, record credit or payments, or view your daily summary."
+            if is_en else
+            "Namaste! Main badhiya hoon. Main aapka HisabAI khata assistant hoon. Aap mujhse customer ka hisab pooch sakte hain, naya udhaar ya jama entry likhwa sakte hain, ya aaj ka summary dekh sakte hain."
+        )
+        return VoiceIntentResult(
+            intent=VoiceIntentType.GREETING,
+            clarification_message=msg,
+            language=lang
+        )
+
+    # 00C. User Complaints & Troubleshooting Assistance
+    complaint_keywords = (
+        "दिक्कत", "dikkat", "pareshani", "परेशानी", "problem", "kaam nahi kar raha",
+        "samajh nahi", "galat samajh", "not working", "facing issue", "kuch samajh nahi",
+        "galat likh", "samajh nahi pa raha", "bhai dikkat"
+    )
+    if any(w in lower for w in complaint_keywords):
+        msg = (
+            "Kshama kijiye! Agar voice assistant ko samajhne mein dikkat ho rahi hai, "
+            "toh kripya dheere aur saaf aawaz mein customer ka naam, amount aur udhaar ya jama bolein. "
+            "Aap screen par diye gaye buttons aur manual form se bhi hisab likh sakte hain."
+        )
+        return VoiceIntentResult(
+            intent=VoiceIntentType.USER_FEEDBACK,
+            clarification_message=msg,
+            language=lang
+        )
 
     # 0. Navigation commands (e.g., "ledger book kholo", "open inventory", "customer list dikhao")
     if any(q in lower for q in ("kholo", "dikhao", "open", "show", "navigate", "go to")):
@@ -955,7 +1260,15 @@ def fallback_heuristic_intent(text: str) -> VoiceIntentResult:
     if any(q in lower for q in ("is mahine", "this month", "current month")):
         return VoiceIntentResult(intent=VoiceIntentType.QUERY_DATE_RANGE_SUMMARY, date_filter="this_month", language=lang)
 
-    # 7. Query customer balance
+    # 7. Query customer balance & Khata Opening (e.g. "Agarwal ji ka khata kholo", "Sharma ji ka balance batao")
+    khata_open_m = re.search(r"([A-Za-z\u0900-\u097F]+(?:\s+ji)?)\s+(?:ka|ki|ke|का|की|के)\s+(?:khata|hisaab|hisab|खाता|हिसाब)\s+(?:kholo|dikhao|batao|खोलो|दिखाओ|बताओ)", lower)
+    if khata_open_m and khata_open_m.group(1).lower() not in ("aaj", "kal", "parso", "today"):
+        return VoiceIntentResult(
+            intent=VoiceIntentType.QUERY_CUSTOMER_BALANCE,
+            customer_name=khata_open_m.group(1).title(),
+            language=lang
+        )
+
     if any(q in lower for q in (
         "kitna baaki", "kitna baki", "khata check", "hisab sunao", "paise lene", "hisab bata",
         "ka hisab", "baki hai", "baaki hai", "how much does", "what is", "balance", "owes"
@@ -972,22 +1285,57 @@ def fallback_heuristic_intent(text: str) -> VoiceIntentResult:
             return VoiceIntentResult(intent=VoiceIntentType.QUERY_CUSTOMER_BALANCE, customer_name=name, language=lang)
 
     # 8. Entry (Full & Contextual)
-    has_udhaar = any(k in lower for k in ("udhaar", "diye", "diya", "credit", "gave"))
-    has_jama = any(k in lower for k in ("jama", "jama kiye", "payment", "paid", "received"))
+    has_udhaar = any(k in lower for k in ("udhaar", "udhar", "credit", "उधार", "उधर", "क्रेडिट", "उधारी", "diya"))
+    has_jama = any(k in lower for k in ("jama", "payment", "paid", "karaye", "aaye", "aaya", "जमा", "पेमेंट", "कराए", "आए", "आया", "de diye", "दे दिए")) or bool(re.search(r"\bne\b.*?\b(?:diye|diya|de\s*diye)\b", lower)) or bool(re.search(r"ने\s+.*?दिए", lower))
+    is_ko_diya = bool(re.search(r"\bko\b.*?\b(?:diye|diya)\b", lower)) or bool(re.search(r"को\s+.*?दिए", lower))
 
-    if has_udhaar or has_jama:
-        tx_type = "UDHAAR" if has_udhaar else "JAMA"
+    if has_udhaar or has_jama or is_ko_diya:
+        if has_jama and not has_udhaar and not is_ko_diya:
+            tx_type = "JAMA"
+        elif has_udhaar and not has_jama:
+            tx_type = "UDHAAR"
+        elif is_ko_diya and not has_jama:
+            tx_type = "UDHAAR"
+        elif any(k in lower for k in ("credit", "udhaar", "udhar", "क्रेडिट", "उधार", "उधर")):
+            tx_type = "UDHAAR"
+        else:
+            tx_type = "JAMA"
+
         amt_match = re.search(r"(\d+(?:\.\d{1,2})?)", lower)
         amt = float(amt_match.group(1)) if amt_match else None
 
         # Try to find customer name
         name = None
-        # Hindi: "Sharma ji ka 200 udhaar likh do" or "Raju ne 500 jama kar diye"
-        m_hi = re.search(r"^([a-zA-Z\u0900-\u097F]+(?:\s+ji)?)\s+(?:ka|ko|ne|ke)?", lower)
-        if m_hi and m_hi.group(1).lower() not in ("udhaar", "jama", "credit", "payment", "record", "give", "please", "ek", "do"):
-            name = m_hi.group(1).title()
+        # Pattern 1: Leading keyword: 'क्रेडिट 2000 संस्कार'
+        m_lead_kw = re.search(r"^(?:क्रेडिट|उधार|उधर|जमा|पेमेंट|credit|payment|udhaar|udhar|jama)\s*(?:₹|rs\.?)?\s*\d+(?:\.\d{1,2})?\s*(?:rupaye|rs|₹|रुपये)?\s+([A-Za-z\u0900-\u097F]+(?:\s+ji)?)$", text, re.IGNORECASE)
+        if m_lead_kw:
+            name = m_lead_kw.group(1).title()
 
-        # English: "record 500 credit for Ramesh" or "Ramesh paid 500" or "give 500 credit to Rahul"
+        # Pattern 2: Leading amount: '2000 संस्कार के नाम पर उधर लिख दो'
+        if not name:
+            m_amt_lead = re.search(r"^\d+(?:\.\d{1,2})?\s*(?:rupaye|rs|₹|रुपये)?\s+([A-Za-z\u0900-\u097F]+(?:\s+ji)?)\s+(?:ke\s+naam\s+par|के\s+नाम\s+पर)", text, re.IGNORECASE)
+            if m_amt_lead:
+                name = m_amt_lead.group(1).title()
+
+        # Pattern 3: Leading customer with 'ke naam par'
+        if not name:
+            m_naam = re.search(r"^([a-zA-Z\u0900-\u097F]+(?:\s+ji)?)\s+(?:ke\s+naam\s+par|के\s+नाम\s+पर)", text, re.IGNORECASE)
+            if m_naam:
+                name = m_naam.group(1).title()
+
+        # Pattern 4: Customer with particle or noise before amount: 'संस्कार आईएस 2000 क्रेडिट'
+        if not name:
+            m_cust_amt = re.search(r"^([A-Za-z\u0900-\u097F]+(?:\s+ji)?)\s+(?:आईएस|is|ko|ka|ke|ne|को|का|के|ने)?\s*(?:₹|rs\.?)?\s*(\d+(?:\.\d{1,2})?)", text, re.IGNORECASE)
+            if m_cust_amt and m_cust_amt.group(1).lower() not in ("udhaar", "jama", "credit", "payment", "record", "give", "क्रेडिट", "उधार", "उधर", "जमा", "पेमेंट"):
+                name = m_cust_amt.group(1).title()
+
+        # Pattern 5: Leading name with 'ka/ko/ne/ke': "Sharma ji ka 200 udhaar likh do" or "Raju ne 500 jama kar diye"
+        if not name:
+            m_hi = re.search(r"^([a-zA-Z\u0900-\u097F]+(?:\s+ji)?)\s+(?:ka|ko|ne|ke|को|का|के|ने)?", lower)
+            if m_hi and m_hi.group(1).lower() not in ("udhaar", "jama", "credit", "payment", "record", "give", "please", "ek", "do", "क्रेडिट", "उधार", "उधर", "जमा", "पेमेंट"):
+                name = m_hi.group(1).title()
+
+        # Pattern 6: English: "record 500 credit for Ramesh" or "Ramesh paid 500" or "give 500 credit to Rahul"
         if not name or name.lower() in ("record", "give", "add"):
             m_en = re.search(r"(?:for|to|from)\s+([A-Za-z\u0900-\u097F]+(?:\s+ji)?)", lower)
             if m_en:

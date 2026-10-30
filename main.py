@@ -20,6 +20,7 @@ from urllib.parse import quote, unquote
 import uuid
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
+from pydantic import BaseModel, Field
 
 from email_service import (
     generate_reminder_email_content,
@@ -162,6 +163,17 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # Key: operation_id (str) -> dict
 PENDING_VOICE_OPERATIONS: Dict[str, dict] = {}
 LAST_SESSION_REPLIES: Dict[str, str] = {}
+
+# In-memory store for conversational voice session state machine (Suno Hisab v4.0)
+user_sessions: Dict[str, dict] = {}
+
+
+class VoiceCommandRequest(BaseModel):
+    """Input payload for voice-command state machine endpoint."""
+    text: str = Field(..., min_length=1, max_length=1000, description="Spoken voice transcript or command")
+    session_id: Optional[str] = Field("default", description="Client session identifier")
+    action: Optional[str] = Field(None, description="Direct action override e.g. confirm, cancel")
+    pending_operation_id: Optional[str] = Field(None, description="Optional pending operation identifier")
 
 
 def cleanup_expired_operations():
@@ -1558,6 +1570,342 @@ def execute_customer_list_voice_query(
 
 
 @app.post(
+    "/api/voice-command",
+    response_model=VoiceAssistantResponse,
+    summary="Conversational Voice Command State Machine endpoint (Suno Hisab v4.0)"
+)
+def handle_voice_command(
+    payload: VoiceCommandRequest,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
+):
+    """
+    Session-aware voice command state machine (Suno Hisab v4.0).
+    Tracks session state ('IDLE' | 'AWAITING_CONFIRMATION') per user/session.
+    Permanently prevents state bleeding and hallucinations.
+    """
+    auth_user_id = current_user.id if current_user else 1
+    raw_text = payload.text.strip()
+    session_id = payload.session_id or "default"
+
+    session = user_sessions.setdefault(session_id, {
+        "session_id": session_id,
+        "state": "IDLE",
+        "pending_transaction": None
+    })
+    current_state = session.get("state", "IDLE")
+    pending_tx = session.get("pending_transaction")
+
+    lower = raw_text.lower()
+    is_confirm_phrase = lower in (
+        "haan", "confirm", "theek hai", "save karo", "save kar do", "yes", "haan save kar do", "ha", "sure", "theek"
+    ) or lower.startswith("haan ") or lower.startswith("confirm ") or lower.startswith("yes ")
+    is_cancel_phrase = lower in (
+        "nahi", "nahin", "no", "cancel", "radd karo", "cancel kar do", "mat karo", "mat save karo"
+    ) or lower.startswith("cancel ") or lower.startswith("radd ")
+
+    # Direct Cancellation Action
+    if payload.action == "cancel" or (is_cancel_phrase and current_state == "AWAITING_CONFIRMATION"):
+        user_sessions.pop(session_id, None)
+        return VoiceAssistantResponse(
+            reply_message="Transaction cancel kar diya gaya hai.",
+            state="IDLE",
+            requires_confirmation=False,
+            action_taken="cancelled",
+            pending_transaction=None
+        )
+
+    # Direct Confirmation Action
+    if payload.action == "confirm" or (is_confirm_phrase and current_state == "AWAITING_CONFIRMATION" and pending_tx):
+        cust_name = pending_tx.get("customer") or pending_tx.get("customer_name")
+        amt = float(pending_tx.get("amount", 0))
+        email = pending_tx.get("email") or pending_tx.get("customer_email")
+        t_type = TransactionType.UDHAAR if pending_tx.get("type") in ("CREDIT", "UDHAAR") else TransactionType.JAMA
+        amount_paise = int(round(amt * 100))
+
+        db_tx = Transaction(
+            user_id=auth_user_id,
+            customer_name=cust_name,
+            customer_email=email,
+            amount_paise=amount_paise,
+            amount=amt,
+            transaction_type=t_type,
+            timestamp=get_current_ist_time()
+        )
+        db.add(db_tx)
+        db.commit()
+        db.refresh(db_tx)
+
+        if email:
+            receipt_job = TransactionReceipt(
+                shop_id=auth_user_id,
+                transaction_id=db_tx.id,
+                customer_name=cust_name,
+                customer_email=email,
+                status="PENDING",
+                attempts=0,
+                created_at=get_current_ist_time()
+            )
+            db.add(receipt_job)
+            db.commit()
+            db.refresh(receipt_job)
+            import threading
+            threading.Thread(target=dispatch_receipt_email_job, args=(receipt_job.id,), daemon=True).start()
+
+        # Wipe session clean immediately to prevent any state bleed!
+        user_sessions.pop(session_id, None)
+
+        type_lbl = "udhaar" if t_type == TransactionType.UDHAAR else "jama"
+        reply = f"{cust_name} ke khate mein ₹{amt:.2f} {type_lbl} safaltapoorvak save kar diye gaye hain."
+        return VoiceAssistantResponse(
+            reply_message=reply,
+            state="IDLE",
+            requires_confirmation=False,
+            action_taken="committed_transaction",
+            pending_transaction=None,
+            data={"transaction_id": db_tx.id}
+        )
+
+    # Active Context Injection
+    context_data = None
+    if current_state == "AWAITING_CONFIRMATION" and pending_tx:
+        context_data = {
+            "state": "AWAITING_CONFIRMATION",
+            "customer": pending_tx.get("customer"),
+            "amount": pending_tx.get("amount"),
+            "email": pending_tx.get("email"),
+            "type": pending_tx.get("type")
+        }
+
+    intent_res = ai_service.classify_voice_command(raw_text, context=context_data)
+
+    # Handle transitions when State is AWAITING_CONFIRMATION:
+    if current_state == "AWAITING_CONFIRMATION":
+        if intent_res.intent in (VoiceIntentType.CONFIRM, VoiceIntentType.CONFIRMATION):
+            if pending_tx:
+                cust_name = pending_tx.get("customer") or pending_tx.get("customer_name")
+                amt = float(pending_tx.get("amount", 0))
+                email = pending_tx.get("email") or pending_tx.get("customer_email")
+                t_type = TransactionType.UDHAAR if pending_tx.get("type") in ("CREDIT", "UDHAAR") else TransactionType.JAMA
+                amount_paise = int(round(amt * 100))
+
+                db_tx = Transaction(
+                    user_id=auth_user_id,
+                    customer_name=cust_name,
+                    customer_email=email,
+                    amount_paise=amount_paise,
+                    amount=amt,
+                    transaction_type=t_type,
+                    timestamp=get_current_ist_time()
+                )
+                db.add(db_tx)
+                db.commit()
+                db.refresh(db_tx)
+
+                user_sessions.pop(session_id, None)
+                type_lbl = "udhaar" if t_type == TransactionType.UDHAAR else "jama"
+                reply = f"{cust_name} ke khate mein ₹{amt:.2f} {type_lbl} safaltapoorvak save kar diye gaye hain."
+                return VoiceAssistantResponse(
+                    reply_message=reply,
+                    state="IDLE",
+                    requires_confirmation=False,
+                    action_taken="committed_transaction",
+                    pending_transaction=None,
+                    data={"transaction_id": db_tx.id}
+                )
+
+        if intent_res.intent in (VoiceIntentType.CANCEL, VoiceIntentType.CANCELLATION):
+            user_sessions.pop(session_id, None)
+            return VoiceAssistantResponse(
+                reply_message="Transaction cancel kar diya gaya hai.",
+                state="IDLE",
+                requires_confirmation=False,
+                action_taken="cancelled",
+                pending_transaction=None
+            )
+
+        if intent_res.intent in (VoiceIntentType.CORRECTION, VoiceIntentType.CORRECT_PENDING_ENTRY):
+            if intent_res.customer_email or (intent_res.entities and intent_res.entities.get("email")):
+                pending_tx["email"] = intent_res.customer_email or intent_res.entities.get("email")
+            if intent_res.corrected_amount or intent_res.amount or (intent_res.entities and intent_res.entities.get("amount")):
+                pending_tx["amount"] = intent_res.corrected_amount or intent_res.amount or intent_res.entities.get("amount")
+            if intent_res.corrected_customer_name or (intent_res.entities and intent_res.entities.get("customer_name")):
+                pending_tx["customer"] = intent_res.corrected_customer_name or intent_res.entities.get("customer_name")
+            if intent_res.transaction_type or (intent_res.entities and intent_res.entities.get("type")):
+                t = intent_res.transaction_type or intent_res.entities.get("type")
+                pending_tx["type"] = "CREDIT" if t in ("CREDIT", "UDHAAR") else "PAYMENT"
+
+            session["pending_transaction"] = pending_tx
+            session["state"] = "AWAITING_CONFIRMATION"
+
+            cust = pending_tx["customer"]
+            amt = pending_tx["amount"]
+            em_txt = f", email {pending_tx['email']}" if pending_tx.get("email") else ""
+            t_lbl = "udhaar" if pending_tx.get("type") in ("CREDIT", "UDHAAR") else "jama"
+            reply = f"{cust} ka ₹{amt:.2f} {t_lbl}{em_txt}. Kya main entry save kar doon?"
+
+            return VoiceAssistantResponse(
+                reply_message=reply,
+                state="AWAITING_CONFIRMATION",
+                requires_confirmation=True,
+                action_taken="corrected_pending_entry",
+                pending_transaction=pending_tx
+            )
+
+        if intent_res.intent in (VoiceIntentType.NEW_TRANSACTION, VoiceIntentType.ENTRY):
+            if intent_res.customer_name and intent_res.amount:
+                new_tx = {
+                    "customer": intent_res.customer_name,
+                    "amount": intent_res.amount,
+                    "email": intent_res.customer_email,
+                    "type": "CREDIT" if intent_res.transaction_type == "UDHAAR" else "PAYMENT"
+                }
+                session["pending_transaction"] = new_tx
+                session["state"] = "AWAITING_CONFIRMATION"
+                t_lbl = "udhaar" if new_tx["type"] == "CREDIT" else "jama"
+                em_txt = f", email {new_tx['email']}" if new_tx.get("email") else ""
+                reply = f"{new_tx['customer']} ka ₹{new_tx['amount']:.2f} {t_lbl}{em_txt}. Kya main entry save kar doon?"
+                return VoiceAssistantResponse(
+                    reply_message=reply,
+                    state="AWAITING_CONFIRMATION",
+                    requires_confirmation=True,
+                    action_taken="new_transaction_awaiting_confirmation",
+                    pending_transaction=new_tx
+                )
+
+        if intent_res.intent == VoiceIntentType.PROVIDE_EMAIL:
+            pending_tx["email"] = intent_res.customer_email
+            session["pending_transaction"] = pending_tx
+            session["state"] = "AWAITING_CONFIRMATION"
+            cust = pending_tx["customer"]
+            amt = pending_tx["amount"]
+            em_txt = f", email {pending_tx['email']}"
+            t_lbl = "udhaar" if pending_tx.get("type") in ("CREDIT", "UDHAAR") else "jama"
+            reply = f"{cust} ka ₹{amt:.2f} {t_lbl}{em_txt}. Kya main entry save kar doon?"
+            return VoiceAssistantResponse(
+                reply_message=reply,
+                state="AWAITING_CONFIRMATION",
+                requires_confirmation=True,
+                action_taken="email_collected_awaiting_confirmation",
+                pending_transaction=pending_tx
+            )
+
+    # Handle transitions when State is IDLE:
+    if intent_res.intent in (VoiceIntentType.NEW_TRANSACTION, VoiceIntentType.ENTRY):
+        if not intent_res.amount:
+            session["state"] = "IDLE"
+            session["pending_transaction"] = None
+            reply = intent_res.clarification_message or "Kitna amount likhna hai?"
+            return VoiceAssistantResponse(
+                reply_message=reply,
+                state="IDLE",
+                requires_confirmation=False,
+                action_taken="missing_amount",
+                pending_transaction=None
+            )
+        if not intent_res.customer_name:
+            session["state"] = "IDLE"
+            session["pending_transaction"] = None
+            reply = intent_res.clarification_message or "Kaunse customer ke naam par likhna hai?"
+            return VoiceAssistantResponse(
+                reply_message=reply,
+                state="IDLE",
+                requires_confirmation=False,
+                action_taken="missing_customer_name",
+                pending_transaction=None
+            )
+        # Complete!
+        pending_tx = {
+            "customer": intent_res.customer_name,
+            "amount": intent_res.amount,
+            "email": intent_res.customer_email,
+            "type": "CREDIT" if intent_res.transaction_type == "UDHAAR" else "PAYMENT"
+        }
+        session["pending_transaction"] = pending_tx
+        session["state"] = "AWAITING_CONFIRMATION"
+
+        t_lbl = "udhaar" if pending_tx["type"] == "CREDIT" else "jama"
+        em_txt = f", email {pending_tx['email']}" if pending_tx.get("email") else ""
+        reply = f"{pending_tx['customer']} ka ₹{pending_tx['amount']:.2f} {t_lbl}{em_txt}. Kya main entry save kar doon?"
+
+        return VoiceAssistantResponse(
+            reply_message=reply,
+            state="AWAITING_CONFIRMATION",
+            requires_confirmation=True,
+            action_taken="awaiting_confirmation",
+            pending_transaction=pending_tx
+        )
+
+    if intent_res.intent == VoiceIntentType.PROVIDE_EMAIL:
+        # User spoke only an email or name in IDLE state - strictly prevent any bleed of previous amounts!
+        session["state"] = "IDLE"
+        session["pending_transaction"] = None
+        reply = f"Customer email received: {intent_res.customer_email}. Kripya transaction command bolein."
+        return VoiceAssistantResponse(
+            reply_message=reply,
+            state="IDLE",
+            requires_confirmation=False,
+            action_taken="email_received",
+            pending_transaction=None
+        )
+
+    # Queries
+    if intent_res.intent == VoiceIntentType.QUERY_CUSTOMER_BALANCE:
+        if not intent_res.customer_name:
+            msg = "Aap kiska khata dekhna chahte hain? Kripya customer ka naam bolein."
+            return VoiceAssistantResponse(reply_message=msg, state="IDLE", action_taken="missing_customer_name", requires_confirmation=False)
+        speech, data = execute_customer_balance_voice_query(intent_res.customer_name, db, user_id=auth_user_id, language=intent_res.language)
+        return VoiceAssistantResponse(reply_message=speech, state="IDLE", action_taken="customer_balance", requires_confirmation=False, data=data)
+
+    if intent_res.intent == VoiceIntentType.QUERY_DAILY_SUMMARY:
+        speech, data = execute_summary_voice_query("today", intent_res.transaction_type, db, user_id=auth_user_id, language=intent_res.language)
+        return VoiceAssistantResponse(reply_message=speech, state="IDLE", action_taken="daily_summary", requires_confirmation=False, data=data)
+
+    if intent_res.intent == VoiceIntentType.QUERY_DATE_RANGE_SUMMARY:
+        speech, data = execute_summary_voice_query(intent_res.date_filter or "today", None, db, user_id=auth_user_id, language=intent_res.language)
+        return VoiceAssistantResponse(reply_message=speech, state="IDLE", action_taken="date_range_summary", requires_confirmation=False, data=data)
+
+    if intent_res.intent == VoiceIntentType.QUERY_CUSTOMER_LIST:
+        speech, data = execute_customer_list_voice_query(db, user_id=auth_user_id, language=intent_res.language)
+        return VoiceAssistantResponse(reply_message=speech, state="IDLE", action_taken="customer_list", requires_confirmation=False, data=data)
+
+    if intent_res.intent == VoiceIntentType.GREETING:
+        reply = intent_res.clarification_message or (
+            "Namaste! Main badhiya hoon. Main aapka HisabAI khata assistant hoon. Aap mujhse customer ka hisab pooch sakte hain, naya udhaar ya jama entry likhwa sakte hain, ya aaj ka summary dekh sakte hain."
+        )
+        LAST_SESSION_REPLIES[session_id] = reply
+        return VoiceAssistantResponse(
+            reply_message=reply,
+            state="IDLE",
+            action_taken="greeting",
+            requires_confirmation=False,
+            pending_transaction=None
+        )
+
+    if intent_res.intent == VoiceIntentType.USER_FEEDBACK:
+        reply = intent_res.clarification_message or (
+            "Kshama kijiye! Agar samajhne mein dikkat ho rahi hai, toh kripya dheere aur saaf bolein, ya screen se manual entry karein."
+        )
+        LAST_SESSION_REPLIES[session_id] = reply
+        return VoiceAssistantResponse(
+            reply_message=reply,
+            state="IDLE",
+            action_taken="troubleshooting_help",
+            requires_confirmation=False,
+            pending_transaction=None
+        )
+
+    msg = intent_res.clarification_message or "Aapne kya kaha, main theek se samajh nahi paaya. Kripya dobara bolein."
+    return VoiceAssistantResponse(
+        reply_message=msg,
+        state="IDLE",
+        action_taken="clarification",
+        requires_confirmation=False,
+        pending_transaction=None
+    )
+
+
+@app.post(
     "/api/voice-assistant",
     response_model=VoiceAssistantResponse,
     summary="Voice Assistant endpoint supporting 'Suno Hisab' and conversational ledger actions"
@@ -1685,6 +2033,9 @@ def handle_voice_assistant(
             op["status"] = "committed"
             op["committed_tx_id"] = db_tx.id
 
+            # Wipe conversational state to prevent state bleeding
+            user_sessions.pop(session_id, None)
+
             is_en = (op.get("language") == "english")
             if is_en:
                 en_type = "credit" if tx_type == TransactionType.UDHAAR else "payment"
@@ -1714,6 +2065,7 @@ def handle_voice_assistant(
             is_en = (PENDING_VOICE_OPERATIONS[op_id].get("language") == "english")
         if not is_en and raw_text.lower() in ("no", "cancel"):
             is_en = True
+        user_sessions.pop(session_id, None)
         reply = "Transaction cancelled. No changes made to the ledger." if is_en else "Theek hai, entry cancel kar di gayi hai. Ledger mein koi badlaav nahi hua."
         LAST_SESSION_REPLIES[session_id] = reply
         return VoiceAssistantResponse(reply_message=reply, action_taken="cancelled", requires_confirmation=False)
@@ -1821,21 +2173,25 @@ def handle_voice_assistant(
         return VoiceAssistantResponse(reply_message=reply, action_taken="no_pending_operation", requires_confirmation=False)
 
     # Intent B: CANCEL
-    if intent_result.intent == VoiceIntentType.CANCEL:
+    if intent_result.intent in (VoiceIntentType.CANCEL, VoiceIntentType.CANCELLATION):
         if op_id and op_id in PENDING_VOICE_OPERATIONS:
             PENDING_VOICE_OPERATIONS[op_id]["status"] = "cancelled"
+        user_sessions.pop(session_id, None)
         reply = "Theek hai, entry cancel kar di gayi hai."
         LAST_SESSION_REPLIES[session_id] = reply
         return VoiceAssistantResponse(reply_message=reply, action_taken="cancelled", requires_confirmation=False)
 
-    # Intent C: CORRECT PENDING ENTRY ("500 nahi 800")
-    if intent_result.intent == VoiceIntentType.CORRECT_PENDING_ENTRY:
+    # Intent C: CORRECT PENDING ENTRY / CORRECTION ("500 nahi 800", "email badlo")
+    if intent_result.intent in (VoiceIntentType.CORRECT_PENDING_ENTRY, VoiceIntentType.CORRECTION):
         if op_id and op_id in PENDING_VOICE_OPERATIONS and PENDING_VOICE_OPERATIONS[op_id]["status"] in ("pending", "waiting_for_email"):
             op = PENDING_VOICE_OPERATIONS[op_id]
-            if intent_result.corrected_amount:
-                op["amount"] = intent_result.corrected_amount
-            if intent_result.corrected_customer_name:
-                op["customer_name"] = intent_result.corrected_customer_name
+            if intent_result.corrected_amount or intent_result.amount:
+                op["amount"] = intent_result.corrected_amount or intent_result.amount
+            if intent_result.corrected_customer_name or intent_result.customer_name:
+                op["customer_name"] = intent_result.corrected_customer_name or intent_result.customer_name
+            if intent_result.customer_email:
+                op["customer_email"] = intent_result.customer_email
+                op["status"] = "pending"
 
             is_en = (op.get("language") == "english") or (intent_result.language == "english")
             email_mention = f", email {op['customer_email']}" if op.get("customer_email") else ""
@@ -1887,6 +2243,34 @@ def handle_voice_assistant(
     if intent_result.intent == VoiceIntentType.STOP_ASSISTANT:
         msg = "Assistant stopped. Say 'Suno Hisab' or tap the mic when needed." if intent_result.language == "english" else "Assistant band kar diya gaya hai. Jab zaroorat ho, 'Suno Hisab' bolein ya mic dabayein."
         return VoiceAssistantResponse(reply_message=msg, action_taken="stopped", requires_confirmation=False)
+
+    # Intent H2: GREETING
+    if intent_result.intent == VoiceIntentType.GREETING:
+        reply = intent_result.clarification_message or (
+            "Namaste! Main badhiya hoon. Main aapka HisabAI khata assistant hoon. Aap mujhse customer ka hisab pooch sakte hain, naya udhaar ya jama entry likhwa sakte hain, ya aaj ka summary dekh sakte hain."
+        )
+        LAST_SESSION_REPLIES[session_id] = reply
+        return VoiceAssistantResponse(
+            reply_message=reply,
+            action_taken="greeting",
+            requires_confirmation=False,
+            pending_operation=None
+        )
+
+    # Intent H3: USER_FEEDBACK
+    if intent_result.intent == VoiceIntentType.USER_FEEDBACK:
+        reply = intent_result.clarification_message or (
+            "Kshama kijiye! Agar voice assistant ko samajhne mein pareshani ho rahi hai, "
+            "toh kripya saaf aawaz mein customer ka naam, amount aur udhaar ya jama bolein. "
+            "Aap screen par diye gaye form se direct manual entry bhi kar sakte hain."
+        )
+        LAST_SESSION_REPLIES[session_id] = reply
+        return VoiceAssistantResponse(
+            reply_message=reply,
+            action_taken="troubleshooting_help",
+            requires_confirmation=False,
+            pending_operation=None
+        )
 
     # Intent I: ENTRY (Two-Step Workflow: Prepare first, never save without confirmation and mandatory email!)
     if intent_result.intent == VoiceIntentType.ENTRY:

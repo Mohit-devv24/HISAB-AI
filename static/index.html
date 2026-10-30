@@ -139,45 +139,73 @@
       margin: auto 0;
     }
 
+    .auth-split-wrapper::before,
+    .auth-split-wrapper::after,
+    .auth-split-wrapper > .edge-light {
+      display: none !important;
+      content: none !important;
+      box-shadow: none !important;
+    }
+
     @media (max-width: 960px) {
       .auth-split-wrapper {
         grid-template-columns: 1fr;
         max-width: 440px;
         gap: 0;
+        padding: 0 16px;
+      }
+      .auth-form-column {
+        padding: 30px 24px 26px 24px !important;
+        border-radius: 24px !important;
       }
       .auth-showcase-panel {
         display: none !important;
       }
     }
 
-    /* Left Form Column */
+    /* Left Form Column (Visual match to Reference Card in Screenshot 2) */
     .auth-form-column {
       width: 100%;
-      max-width: 410px;
+      max-width: 430px;
       margin: 0 auto;
-      padding: 8px 0;
+      padding: 38px 36px 34px 36px;
+      background: #FFFFFF;
+      border: 1px solid #E2E8F0;
+      border-radius: 28px;
+      box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.05), 0 4px 12px -2px rgba(0, 0, 0, 0.03);
+      box-sizing: border-box;
+      position: relative;
+      isolation: isolate;
+    }
+
+    .auth-form-column::before,
+    .auth-form-column::after,
+    .auth-form-column > .edge-light {
+      display: none !important;
+      content: none !important;
+      box-shadow: none !important;
     }
 
     .auth-modern-logo {
       display: flex;
       align-items: center;
-      margin-bottom: 22px;
+      margin-bottom: 20px;
     }
 
     .auth-modern-title {
-      font-size: 2.15rem;
+      font-size: 2.05rem;
       font-weight: 800;
       letter-spacing: -0.8px;
       color: #09090b;
-      margin-bottom: 8px;
-      line-height: 1.15;
+      margin-bottom: 6px;
+      line-height: 1.18;
     }
 
     .auth-modern-sub {
-      font-size: 0.92rem;
+      font-size: 0.90rem;
       color: #52525b;
-      line-height: 1.5;
-      margin-bottom: 28px;
+      line-height: 1.48;
+      margin-bottom: 26px;
     }
 
     .auth-input-group {
@@ -202,8 +230,8 @@
       width: 100%;
       background: #ffffff;
       border: 1px solid #e4e4e7;
-      border-radius: 8px;
-      padding: 11px 14px;
+      border-radius: 10px;
+      padding: 12px 14px;
       font-size: 0.92rem;
       color: #09090b;
       outline: none;
@@ -1504,6 +1532,8 @@
        NAYA ENTRY (MANUAL TRANSACTION ENTRY FORM - RE-ENGINEERED)
        ========================================================================== */
     .entry-form-card {
+      position: relative;
+      isolation: isolate;
       background: var(--surface-card);
       border: 1px solid var(--border-color);
       border-radius: var(--radius-lg);
@@ -1514,6 +1544,21 @@
       min-width: 0;
       margin: 0 auto;
       box-shadow: var(--shadow-card);
+    }
+
+    /* Strictly eliminate any glow, specular outline or pseudo-element overlays on entry-form-card */
+    .entry-form-card::before,
+    .entry-form-card::after,
+    .entry-form-card > .edge-light,
+    .entry-form-card > canvas:not(.voice-mic-electric-canvas) {
+      display: none !important;
+      content: none !important;
+      box-shadow: none !important;
+    }
+
+    .entry-form-card.border-glow-card {
+      border: 1px solid var(--border-color) !important;
+      box-shadow: var(--shadow-card) !important;
     }
 
     .entry-form-card h2 {
@@ -5077,6 +5122,9 @@
     let fsmCurrentState = FSM_STATES.SLEEPING;
     let speechRecognizer = null;
     let isContinuousVoiceEnabled = false;
+    let isManualStop = false;
+    let speechDebounceTimer = null;
+    let accumulatedFinalTranscript = '';
     let isTtsSpeaking = false;
     let ignoreSpeechTimestamp = 0;       // 600ms grace window for acoustic loop immunity
     let isTtsMuted = false;
@@ -5091,6 +5139,13 @@
     let isConversationSessionActive = false;
     let conversationSessionTimeoutId = null;
     const CONVERSATION_TIMEOUT_MS = 30000;
+
+    // Strict recognition lifecycle state tracking (Suno Hisab v4.1)
+    let isRecognitionActive = false;
+    let isStartingRecognition = false;
+    let restartTimeoutId = null;
+    let lastSubmittedTranscript = '';
+    let lastSubmittedTimestamp = 0;
 
     // --- 1. BOOTSTRAP & AUTH LIFECYCLE ---
     let googleClientId = null;
@@ -7158,7 +7213,70 @@
       return cachedMaleVoice;
     }
 
-    // --- 8. SUNO HISAB VOICE ASSISTANT ENGINE (CONTINUOUS + ACOUSTIC LOOP IMMUNITY) ---
+    // --- 8. SUNO HISAB VOICE ASSISTANT ENGINE (CONTINUOUS + ACOUSTIC LOOP IMMUNITY + SILENCE DEBOUNCER) ---
+    function safeStartRecognition(reason = "unspecified") {
+      console.log(`[Voice Engine] safeStartRecognition requested. Reason: ${reason}. Active: ${isRecognitionActive}, Starting: ${isStartingRecognition}, ManualStop: ${isManualStop}, Continuous: ${isContinuousVoiceEnabled}, TTS: ${isTtsSpeaking}, InFlight: ${voiceCommandInFlight}`);
+
+      if (isManualStop || !isContinuousVoiceEnabled || isTtsSpeaking || voiceCommandInFlight) {
+        console.log(`[Voice Engine] safeStartRecognition suppressed (${reason}): isManualStop=${isManualStop}, isContinuous=${isContinuousVoiceEnabled}, isTtsSpeaking=${isTtsSpeaking}, inFlight=${voiceCommandInFlight}`);
+        return;
+      }
+
+      if (isRecognitionActive || isStartingRecognition) {
+        console.log(`[Voice Engine] safeStartRecognition already active/starting (${reason}).`);
+        return;
+      }
+
+      if (restartTimeoutId) {
+        clearTimeout(restartTimeoutId);
+        restartTimeoutId = null;
+      }
+
+      if (!speechRecognizer) {
+        setupSpeechRecognition();
+        if (!speechRecognizer) return;
+      }
+
+      isStartingRecognition = true;
+      try {
+        speechRecognizer.start();
+        console.log(`[Voice Engine] speechRecognizer.start() called successfully (${reason}).`);
+      } catch (err) {
+        isStartingRecognition = false;
+        console.warn(`[Voice Engine] speechRecognizer.start() exception (${reason}):`, err.name, err.message);
+        if (err.name === 'InvalidStateError') {
+          isRecognitionActive = true;
+        }
+      }
+    }
+
+    function safeStopRecognition(reason = "unspecified", shouldAbort = false) {
+      console.log(`[Voice Engine] safeStopRecognition requested. Reason: ${reason}, shouldAbort: ${shouldAbort}`);
+
+      if (restartTimeoutId) {
+        clearTimeout(restartTimeoutId);
+        restartTimeoutId = null;
+      }
+      if (speechDebounceTimer) {
+        clearTimeout(speechDebounceTimer);
+        speechDebounceTimer = null;
+      }
+
+      if (!speechRecognizer) return;
+
+      if (isRecognitionActive || isStartingRecognition) {
+        try {
+          if (shouldAbort) {
+            speechRecognizer.abort();
+          } else {
+            speechRecognizer.stop();
+          }
+        } catch (err) {
+          console.warn(`[Voice Engine] safeStopRecognition exception (${reason}):`, err);
+        }
+      }
+    }
+
     function setupSpeechRecognition() {
       if (speechRecognizer) return;
 
@@ -7173,57 +7291,133 @@
       speechRecognizer = new SpeechRecognition();
       speechRecognizer.continuous = true;
       speechRecognizer.interimResults = true;
-      speechRecognizer.lang = 'en-IN';
+      speechRecognizer.lang = 'hi-IN';
 
       speechRecognizer.onstart = () => {
-        console.log("Speech recognition online.");
+        isStartingRecognition = false;
+        isRecognitionActive = true;
+        console.log("[Voice Engine] Speech recognition online.");
       };
 
       speechRecognizer.onresult = (event) => {
-        // 100% ACOUSTIC LOOP GATING: Block recognition if assistant is speaking or inside 600ms grace window
+        // Acoustic loop immunity: ignore speech during or immediately after assistant TTS
         if (isTtsSpeaking || Date.now() < ignoreSpeechTimestamp) {
-          console.log("[Acoustic Immunity] Gated speech feedback from assistant TTS.");
+          console.log("[Voice Engine] Gated mic input during assistant TTS / acoustic grace window.");
           return;
         }
 
+        // Reset silence debouncer timer on any incoming speech detection
+        if (speechDebounceTimer) {
+          clearTimeout(speechDebounceTimer);
+          speechDebounceTimer = null;
+        }
+
         let interim = '';
-        let final = '';
+        let currentFinalPiece = '';
 
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           const piece = event.results[i][0].transcript;
-          if (event.results[i].isFinal) final += piece;
-          else interim += piece;
+          if (event.results[i].isFinal) currentFinalPiece += ' ' + piece;
+          else interim += ' ' + piece;
         }
 
-        const heard = (final || interim).trim();
-        if (!heard) return;
+        if (currentFinalPiece.trim()) {
+          accumulatedFinalTranscript = (accumulatedFinalTranscript + ' ' + currentFinalPiece).trim();
+        }
 
-        processVoiceStream(heard, Boolean(final));
+        const currentDisplay = (accumulatedFinalTranscript + ' ' + interim).trim();
+        if (!currentDisplay) return;
+
+        // Dynamic feedback in stage caption
+        const captionEl = document.getElementById('voiceStageCaption');
+        if (captionEl) {
+          captionEl.textContent = currentDisplay;
+        }
+
+        // 1200ms Silence Debouncer: triggers complete sentence processing after silence
+        speechDebounceTimer = setTimeout(() => {
+          speechDebounceTimer = null;
+          const completeTranscript = (accumulatedFinalTranscript || currentDisplay).trim();
+          accumulatedFinalTranscript = '';
+
+          if (!completeTranscript) return;
+
+          // Duplicate suppression: prevent rapid double-fire from browser event glitches (< 1000ms)
+          const now = Date.now();
+          const isCorrection = /\b(?:change|badlo|email|amount|nahi|nahin|instead)\b/i.test(completeTranscript);
+          if (!isCorrection && completeTranscript.toLowerCase() === lastSubmittedTranscript.toLowerCase() && (now - lastSubmittedTimestamp) < 1000) {
+            console.log(`[Voice Engine] Suppressed rapid duplicate utterance: "${completeTranscript}"`);
+            return;
+          }
+
+          lastSubmittedTranscript = completeTranscript;
+          lastSubmittedTimestamp = now;
+
+          console.log(`[Voice Engine] Dispatching debounced utterance: "${completeTranscript}"`);
+          processVoiceStream(completeTranscript, true);
+        }, 1200);
       };
 
       speechRecognizer.onerror = (event) => {
-        console.warn("Speech recognition error:", event.error);
-        if (event.error === 'not-allowed') {
+        const err = event.error;
+        if (err === 'aborted') {
+          console.log("[Voice Engine] Speech recognition aborted gracefully.");
+          return;
+        }
+        if (err === 'no-speech') {
+          console.log("[Voice Engine] No speech detected in listening window.");
+          return;
+        }
+
+        console.warn("[Voice Engine] Speech recognition error:", err);
+        if (err === 'not-allowed' || err === 'service-not-allowed') {
+          isManualStop = true;
           showToast("Microphone permission denied. Grant access in browser settings.", "error");
           document.getElementById('voiceFsmDot').textContent = '🚫';
           document.getElementById('voiceFsmText').textContent = 'PERMISSION DENIED';
           document.getElementById('voiceStageCaption').textContent = 'Microphone access blocked. Please allow mic permissions in browser settings.';
           stopContinuousVoice();
-        } else if (event.error === 'no-speech') {
-          // Normal silence, keep listening
+        } else if (err === 'audio-capture') {
+          isManualStop = true;
+          showToast("Microphone not detected. Please connect an audio input device.", "error");
+          stopContinuousVoice();
         } else {
-          updateFsmBadge(FSM_STATES.ERROR_RECOVERY, "Speech error: " + event.error);
+          updateFsmBadge(FSM_STATES.ERROR_RECOVERY, "Speech error: " + err);
         }
       };
 
       speechRecognizer.onend = () => {
-        if (isContinuousVoiceEnabled && !isTtsSpeaking && Date.now() >= ignoreSpeechTimestamp) {
-          setTimeout(() => {
-            if (isContinuousVoiceEnabled && !isTtsSpeaking) {
-              try { speechRecognizer.start(); } catch (e) {}
-            }
-          }, 150);
+        isStartingRecognition = false;
+        isRecognitionActive = false;
+        console.log("[Voice Engine] Speech recognition ended.");
+
+        if (isManualStop || !isContinuousVoiceEnabled || isTtsSpeaking || voiceCommandInFlight) {
+          console.log(`[Voice Engine] onend restart skipped (manualStop=${isManualStop}, continuous=${isContinuousVoiceEnabled}, tts=${isTtsSpeaking}, inFlight=${voiceCommandInFlight})`);
+          return;
         }
+
+        // Flush any remaining accumulated transcript before restarting
+        if (accumulatedFinalTranscript.trim()) {
+          const pendingText = accumulatedFinalTranscript.trim();
+          accumulatedFinalTranscript = '';
+          const now = Date.now();
+          if (pendingText.toLowerCase() !== lastSubmittedTranscript.toLowerCase() || (now - lastSubmittedTimestamp) >= 2500) {
+            lastSubmittedTranscript = pendingText;
+            lastSubmittedTimestamp = now;
+            console.log(`[Voice Engine] onend flushing final utterance: "${pendingText}"`);
+            processVoiceStream(pendingText, true);
+            return;
+          }
+        }
+
+        // Single tracked restart timer
+        if (restartTimeoutId) clearTimeout(restartTimeoutId);
+        restartTimeoutId = setTimeout(() => {
+          restartTimeoutId = null;
+          if (isContinuousVoiceEnabled && !isManualStop && !isTtsSpeaking && !voiceCommandInFlight) {
+            safeStartRecognition("onend_recycle");
+          }
+        }, 300);
       };
 
       // Best Male Voice Cache (Handles asynchronous voiceschanged)
@@ -7332,20 +7526,46 @@
         return;
       }
 
-      // Priority 1: Awaiting Confirmation ("Yes" / "No")
+      // Priority 1: Awaiting Confirmation ("Yes" / "No" / Correction)
       if (fsmCurrentState === FSM_STATES.AWAITING_CONFIRMATION && isFinal) {
         resetConversationSessionTimer();
         const lower = text.toLowerCase();
-        if (lower.includes("yes") || lower.includes("confirm") || lower.includes("save") || lower.includes("ok") || lower.includes("sure") || lower.includes("haan") || lower.includes("theek") || lower.includes("settle") || lower.includes("ha")) {
+
+        // 1. Check for CORRECTION first (e.g. "Nahin Mel ID change karo", "Nahi, email ID change karo", "amount badlo")
+        const isCorrection = lower.includes("change") ||
+                             lower.includes("badlo") ||
+                             lower.includes("badal") ||
+                             lower.includes("mel id") ||
+                             lower.includes("email") ||
+                             lower.includes("@") ||
+                             lower.includes("dot com") ||
+                             lower.includes("instead") ||
+                             lower.includes("ke badle") ||
+                             lower.includes("ki jagah") ||
+                             lower.includes("amount") ||
+                             lower.includes("rupaye") ||
+                             (lower.includes("karo") && (lower.includes("nahi") || lower.includes("nahin"))) ||
+                             (/\d+/.test(lower) && (lower.includes("nahi") || lower.includes("nahin")));
+
+        if (isCorrection) {
+          dispatchVoiceCommand(text, activePendingOperation?.operation_id);
+          return;
+        }
+
+        // 2. Pure Confirmation ("Haan", "Confirm", "Yes")
+        const isConfirm = ["yes", "confirm", "save", "theek", "haan", "ha", "haa", "bilkul", "ok", "sure"].some(w => lower.split(/\s+/).includes(w)) ||
+                          lower.startsWith("haan") || lower.startsWith("yes") || lower.startsWith("save") || lower.startsWith("confirm");
+        if (isConfirm && !lower.includes("mat")) {
           submitVoiceConfirmationChoice('confirm');
           return;
         }
-        if (lower.includes("no") || lower.includes("cancel") || lower.includes("don't") || lower.includes("dont") || lower.includes("stop") || lower.includes("nahi") || lower.includes("mat karo") || lower.includes("radd")) {
+
+        // 3. Pure Cancellation ("Nahi", "Cancel karo", "Radd karo")
+        const isCancel = ["no", "cancel", "radd", "abort"].some(w => lower.includes(w)) ||
+                         lower.trim() === "nahi" || lower.trim() === "nahin" ||
+                         lower.startsWith("mat save") || lower.startsWith("cancel") || lower.startsWith("radd");
+        if (isCancel) {
           submitVoiceConfirmationChoice('cancel');
-          return;
-        }
-        if (lower.includes("nahi") || lower.includes("no") || lower.includes("instead") || lower.includes("badle") || lower.includes("jagah")) {
-          dispatchVoiceCommand(text, activePendingOperation?.operation_id);
           return;
         }
       }
@@ -7371,9 +7591,9 @@
         return;
       }
 
-      // Priority 3: Active Continuous Conversation (NO WAKE WORD REQUIRED!)
-      if (isConversationSessionActive) {
-        resetConversationSessionTimer();
+      // Priority 3: Active Continuous Conversation OR Continuous Voice Enabled
+      if (isConversationSessionActive || isContinuousVoiceEnabled) {
+        startConversationSession();
         updateFsmBadge(FSM_STATES.CAPTURING_COMMAND);
         userSpeechBuffer = text;
         if (isFinal) {
@@ -7417,6 +7637,7 @@
 
     async function dispatchVoiceCommand(text, pendingOpId = null, actionOverride = "process") {
       voiceCommandInFlight = true;
+      safeStopRecognition("dispatching_command", false);
       updateFsmBadge(FSM_STATES.PROCESSING);
 
       // Show dialogue bubble
@@ -7447,8 +7668,17 @@
 
         startConversationSession();
 
-        if (data.action_taken === 'waiting_for_customer_email' || (data.pending_operation && data.pending_operation.status === 'waiting_for_email')) {
-          activePendingOperation = data.pending_operation;
+        const activeOpData = data.pending_operation || (data.pending_transaction ? {
+          operation_id: voiceSessionId,
+          customer_name: data.pending_transaction.customer,
+          amount: data.pending_transaction.amount,
+          transaction_type: data.pending_transaction.type === 'CREDIT' ? 'UDHAAR' : 'JAMA',
+          customer_email: data.pending_transaction.email,
+          status: 'pending'
+        } : null);
+
+        if (data.action_taken === 'waiting_for_customer_email' || (activeOpData && activeOpData.status === 'waiting_for_email')) {
+          activePendingOperation = activeOpData;
           const emailCard = document.getElementById('voiceEmailPromptCard');
           if (emailCard) {
             emailCard.style.display = 'block';
@@ -7461,12 +7691,12 @@
           if (document.getElementById('voiceConfirmCard')) {
             document.getElementById('voiceConfirmCard').style.display = 'none';
           }
-        } else if (data.requires_confirmation && data.pending_operation) {
-          activePendingOperation = data.pending_operation;
+        } else if ((data.requires_confirmation || data.state === 'AWAITING_CONFIRMATION') && activeOpData) {
+          activePendingOperation = activeOpData;
           if (document.getElementById('voiceEmailPromptCard')) {
             document.getElementById('voiceEmailPromptCard').style.display = 'none';
           }
-          renderVoiceConfirmCard(data.pending_operation);
+          renderVoiceConfirmCard(activeOpData);
           updateFsmBadge(FSM_STATES.AWAITING_CONFIRMATION);
         } else {
           if (document.getElementById('voiceEmailPromptCard')) document.getElementById('voiceEmailPromptCard').style.display = 'none';
@@ -7487,32 +7717,43 @@
           }
         }
 
-        speakAssistantResponse(data.reply_message, () => {
-          if (data.requires_confirmation) updateFsmBadge(FSM_STATES.AWAITING_CONFIRMATION);
-          else if (isContinuousVoiceEnabled) updateFsmBadge(FSM_STATES.LISTENING_IDLE);
-          else updateFsmBadge(FSM_STATES.SLEEPING);
+        await new Promise((resolve) => {
+          speakAssistantResponse(data.reply_message, () => {
+            if (data.requires_confirmation) updateFsmBadge(FSM_STATES.AWAITING_CONFIRMATION);
+            else if (isContinuousVoiceEnabled) updateFsmBadge(FSM_STATES.LISTENING_IDLE);
+            else updateFsmBadge(FSM_STATES.SLEEPING);
+            resolve();
+          });
         });
 
       } catch (err) {
+        console.error("[Voice Engine] Error processing voice command:", err);
         showToast(err.message, "error");
         updateFsmBadge(FSM_STATES.ERROR_RECOVERY, err.message);
+        if (isContinuousVoiceEnabled && !isManualStop) {
+          setTimeout(() => {
+            safeStartRecognition("error_recovery_resume");
+          }, 2500);
+        }
       } finally {
         voiceCommandInFlight = false;
+        lastSubmittedTranscript = '';
       }
     }
 
     // SpeechSynthesis TTS with 100% ACOUSTIC LOOP IMMUNITY
     function speakAssistantResponse(text, onComplete) {
       if (isTtsMuted || !('speechSynthesis' in window)) {
+        if (isContinuousVoiceEnabled && !isManualStop) {
+          safeStartRecognition("tts_muted_resume");
+        }
         if (onComplete) onComplete();
         return;
       }
 
-      // CRITICAL STEP 1: Immediately abort speech recognition so it NEVER hears itself
+      // CRITICAL STEP 1: Safely stop speech recognition so it NEVER hears itself or throws abort errors
       isTtsSpeaking = true;
-      if (speechRecognizer) {
-        try { speechRecognizer.abort(); } catch (e) {}
-      }
+      safeStopRecognition("tts_playback_starting", false);
       updateFsmBadge(FSM_STATES.SPEAKING);
 
       if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
@@ -7532,14 +7773,19 @@
       utterance.rate = 0.94;
       utterance.pitch = 0.92;
 
+      let hasFinished = false;
       const finishPlayback = () => {
+        if (hasFinished) return;
+        hasFinished = true;
+        console.log("[Voice Engine] Assistant TTS playback finished.");
+
         // CRITICAL STEP 2: Enforce 600ms grace window after playback ends
         ignoreSpeechTimestamp = Date.now() + 600;
 
         setTimeout(() => {
           isTtsSpeaking = false;
-          if (isContinuousVoiceEnabled && speechRecognizer) {
-            try { speechRecognizer.start(); } catch (e) {}
+          if (isContinuousVoiceEnabled && !isManualStop && !voiceCommandInFlight) {
+            safeStartRecognition("tts_playback_finished");
           }
           if (onComplete) onComplete();
         }, 600);
@@ -7547,6 +7793,7 @@
 
       utterance.onend = finishPlayback;
       utterance.onerror = (e) => {
+        console.warn("[Voice Engine] Assistant TTS playback error:", e);
         finishPlayback();
       };
 
@@ -7591,33 +7838,42 @@
 
     function startContinuousVoice() {
       if (!speechRecognizer) setupSpeechRecognition();
+      isManualStop = false;
+      accumulatedFinalTranscript = '';
+      if (speechDebounceTimer) { clearTimeout(speechDebounceTimer); speechDebounceTimer = null; }
+      if (restartTimeoutId) { clearTimeout(restartTimeoutId); restartTimeoutId = null; }
       isContinuousVoiceEnabled = true;
+      startConversationSession();
       updateFsmBadge(FSM_STATES.LISTENING_IDLE);
 
       document.getElementById('voiceToggleModeBtn').classList.add('active');
       document.getElementById('voiceToggleModeIcon').textContent = '⏹️';
       document.getElementById('voiceToggleModeText').textContent = 'Stop Voice Mode';
 
-      try { speechRecognizer.start(); } catch (e) {}
+      safeStartRecognition("user_start");
       showToast("Voice Mode Started! Say 'Hey Assistant' or speak naturally.", "success");
     }
 
     function stopContinuousVoice() {
+      isManualStop = true;
       isContinuousVoiceEnabled = false;
       isConversationSessionActive = false;
+      accumulatedFinalTranscript = '';
+      if (speechDebounceTimer) { clearTimeout(speechDebounceTimer); speechDebounceTimer = null; }
+      if (restartTimeoutId) { clearTimeout(restartTimeoutId); restartTimeoutId = null; }
+      if (conversationSessionTimeoutId) { clearTimeout(conversationSessionTimeoutId); conversationSessionTimeoutId = null; }
       document.getElementById('voiceSessionPill').style.display = 'none';
 
       document.getElementById('voiceToggleModeBtn').classList.remove('active');
       document.getElementById('voiceToggleModeIcon').textContent = '▶️';
       document.getElementById('voiceToggleModeText').textContent = 'Start Voice Mode';
 
-      if (speechRecognizer) {
-        try { speechRecognizer.stop(); } catch (e) {}
-      }
+      safeStopRecognition("user_manual_stop", false);
       if (window.speechSynthesis) window.speechSynthesis.cancel();
       isTtsSpeaking = false;
       updateFsmBadge(FSM_STATES.SLEEPING);
       setElectricVisualState('OFF');
+      console.log("[Voice Engine] Speech recognition stopped manually.");
     }
 
     function toggleVoiceAudioMute() {
@@ -9339,8 +9595,8 @@ void main() {
     }
 
     function initSpecularButtons() {
-      // Exclude circular audio mic button, navigation items, sidebar actions, and drawer toggles
-      const buttons = document.querySelectorAll('button:not(#voiceMicBtn):not(.mobile-menu-toggle):not(.auth-password-toggle):not(.nav-item):not(.mobile-nav-btn):not(.sidebar-close-btn):not(.btn-logout)');
+      // Exclude circular audio mic button, navigation items, sidebar actions, drawer toggles, and form controls
+      const buttons = document.querySelectorAll('button:not(#voiceMicBtn):not(.mobile-menu-toggle):not(.auth-password-toggle):not(.nav-item):not(.mobile-nav-btn):not(.sidebar-close-btn):not(.btn-logout):not(.type-choice-btn):not(.preset-chip-btn)');
       buttons.forEach(btn => {
         attachSpecularToButton(btn);
       });
@@ -9436,7 +9692,7 @@ void main() {
       static attach(el, options = {}) {
         if (!el) return;
 
-        // Strictly exclude buttons, button elements, and specular button components
+        // Strictly exclude buttons, form cards, authentication cards, and sidebar elements
         if (
           el.tagName === 'BUTTON' ||
           el.classList.contains('specular-button') ||
@@ -9446,6 +9702,12 @@ void main() {
           el.classList.contains('btn-logout') ||
           el.classList.contains('mobile-menu-toggle') ||
           el.classList.contains('topbar-voice-btn') ||
+          el.classList.contains('entry-form-card') ||
+          el.classList.contains('auth-form-column') ||
+          el.classList.contains('auth-split-wrapper') ||
+          el.closest('.entry-form-card') ||
+          el.closest('.auth-form-column') ||
+          el.closest('.auth-split-wrapper') ||
           el.closest('button') ||
           el.closest('.kinetic-sidebar') ||
           el.closest('.mobile-bottom-nav') ||
@@ -9574,8 +9836,6 @@ void main() {
           '.dashboard-header-banner',
           '.stat-card',
           '.panel-card',
-          // New Entry
-          '.entry-form-card',
           // Voice Assistant
           '.voice-hub-container',
           '.voice-status-bar',
@@ -9607,9 +9867,7 @@ void main() {
           // Modals & Drawers
           '.drawer-modal-card',
           // Authentication Screens
-          '.auth-form-column',
-          '.auth-testimonial-card',
-          '.auth-split-wrapper'
+          '.auth-testimonial-card'
         ];
 
         document.querySelectorAll(selectors.join(', ')).forEach(el => {
@@ -9623,6 +9881,12 @@ void main() {
             el.classList.contains('btn-logout') ||
             el.classList.contains('mobile-menu-toggle') ||
             el.classList.contains('topbar-voice-btn') ||
+            el.classList.contains('entry-form-card') ||
+            el.classList.contains('auth-form-column') ||
+            el.classList.contains('auth-split-wrapper') ||
+            el.closest('.entry-form-card') ||
+            el.closest('.auth-form-column') ||
+            el.closest('.auth-split-wrapper') ||
             el.closest('button') ||
             el.closest('.kinetic-sidebar') ||
             el.closest('.mobile-bottom-nav') ||

@@ -462,6 +462,7 @@ class HealthResponse(BaseModel):
 class VoiceIntentType(str, enum.Enum):
     """Classification of voice command intents."""
     ENTRY = "ENTRY"
+    NEW_TRANSACTION = "NEW_TRANSACTION"
     QUERY_CUSTOMER_BALANCE = "QUERY_CUSTOMER_BALANCE"
     QUERY_CUSTOMER_HISTORY = "QUERY_CUSTOMER_HISTORY"
     QUERY_DAILY_SUMMARY = "QUERY_DAILY_SUMMARY"
@@ -470,8 +471,11 @@ class VoiceIntentType(str, enum.Enum):
     AMBIGUOUS_ACCOUNT_ACTION = "AMBIGUOUS_ACCOUNT_ACTION"
     SETTLE_BALANCE = "SETTLE_BALANCE"
     CONFIRM = "CONFIRM"
+    CONFIRMATION = "CONFIRMATION"
     CANCEL = "CANCEL"
+    CANCELLATION = "CANCELLATION"
     CORRECT_PENDING_ENTRY = "CORRECT_PENDING_ENTRY"
+    CORRECTION = "CORRECTION"
     REPEAT_LAST_RESPONSE = "REPEAT_LAST_RESPONSE"
     STOP_ASSISTANT = "STOP_ASSISTANT"
     NAVIGATE_VIEW = "NAVIGATE_VIEW"
@@ -479,6 +483,8 @@ class VoiceIntentType(str, enum.Enum):
     PREPARE_RECEIPT = "PREPARE_RECEIPT"
     PROVIDE_EMAIL = "PROVIDE_EMAIL"
     UPDATE_CUSTOMER_EMAIL = "UPDATE_CUSTOMER_EMAIL"
+    GREETING = "GREETING"
+    USER_FEEDBACK = "USER_FEEDBACK"
     UNKNOWN = "UNKNOWN"
 
 
@@ -495,6 +501,8 @@ class VoiceIntentResult(BaseModel):
     corrected_customer_name: Optional[str] = None
     clarification_message: Optional[str] = None
     language: Optional[str] = "hinglish"  # "hindi", "hinglish", "english"
+    correction_target: Optional[str] = None  # "email" | "amount" | "customer_name" | "type"
+    entities: Optional[dict] = None
 
     @field_validator("amount", "corrected_amount")
     @classmethod
@@ -552,6 +560,8 @@ class VoiceAssistantResponse(BaseModel):
     status: Optional[str] = Field("success", description="Status string for compatibility")
     intent: Optional[str] = Field(None, description="Intent classification string for compatibility")
     spoken_text: Optional[str] = Field(None, description="Spoken speech transcript for compatibility")
+    state: Optional[str] = Field("IDLE", description="FSM state: IDLE | AWAITING_CONFIRMATION")
+    pending_transaction: Optional[dict] = Field(None, description="Pending transaction dict for session state machine")
 
     @model_validator(mode="after")
     def populate_compatibility_fields(self):
