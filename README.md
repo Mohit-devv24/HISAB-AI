@@ -36,7 +36,7 @@ Small shopkeepers across India lose significant revenue and hours of productivit
 ## 📚 3. Third-Party Libraries, APIs & Starter Templates Credits
 * **External APIs:**
   * **Google Gemini API / Gemma** (`google-genai` SDK) — Intent classification, entity extraction, and structured parsing.
-  * **Reddit API** — Supplementary trend/sentiment analysis and community data integration.
+  * **BREVO API / Brevo** — Supplementary trend/sentiment analysis and community data integration.
 * **Core Frameworks & Libraries:**
   * **Backend:** FastAPI, Uvicorn, SQLAlchemy 2.x, Pydantic v2, Python `zoneinfo`.
   * **Browser Web APIs:** Native Web Speech API (`SpeechRecognition`, `SpeechSynthesis`), Web Audio API (`AudioContext`, `OscillatorNode`).
