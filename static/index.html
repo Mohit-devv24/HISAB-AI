@@ -8,7 +8,6 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+Devanagari:wght@400;500;600;700;800&family=Bebas+Neue&family=Caveat:wght@600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css" />
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
     /* ==========================================================================
@@ -889,7 +888,7 @@
     .sidebar-footer {
       position: relative;
       z-index: 1;
-      padding: 14px 12px;
+      padding: 16px 14px;
       border-top: 1px solid rgba(255, 255, 255, 0.08);
       background: #191919;
     }
@@ -900,72 +899,56 @@
       justify-content: space-between;
       gap: 10px;
       padding: 10px 12px;
-      background: #242427 !important;
-      border: 1px solid rgba(255, 255, 255, 0.12) !important;
+      background: #202020;
+      border: 1px solid #2F2F2F;
       border-radius: 12px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
     }
 
     .user-info {
       overflow: hidden;
       display: flex;
       flex-direction: column;
-      gap: 3px;
-      min-width: 0;
-      flex: 1;
-      justify-content: center;
+      gap: 2px;
     }
 
     .user-name {
-      font-size: 0.86rem;
+      font-size: 0.85rem;
       font-weight: 700;
-      color: #FFFFFF !important;
+      color: #FFFFFF;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
       letter-spacing: -0.01em;
-      line-height: 1.25;
     }
 
     .user-role {
       font-size: 0.72rem;
-      font-weight: 600;
-      color: #A1A1AA !important;
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      line-height: 1.2;
+      font-weight: 500;
+      color: #94A3B8;
     }
 
     .btn-logout {
-      background: rgba(239, 68, 68, 0.14) !important;
-      border: 1px solid rgba(239, 68, 68, 0.32) !important;
-      color: #F87171 !important;
+      background: #2A2A2A;
+      border: 1px solid #3F3F46;
+      color: #FFFFFF;
       border-radius: 9999px;
-      padding: 6px 13px;
-      font-size: 0.76rem;
+      padding: 6px 12px;
+      font-size: 0.75rem;
       font-weight: 700;
       cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-      flex-shrink: 0;
+      transition: all 0.2s ease;
       white-space: nowrap;
       letter-spacing: -0.01em;
       box-shadow: none !important;
     }
 
     .btn-logout:hover {
-      background: #DC2626 !important;
-      border-color: #EF4444 !important;
-      color: #FFFFFF !important;
+      background: #DC2626;
+      border-color: #EF4444;
+      color: #FFFFFF;
       transform: translateY(-1px);
-      box-shadow: 0 3px 10px rgba(220, 38, 38, 0.45) !important;
-    }
-
-    .btn-logout:active {
-      transform: translateY(0);
+      box-shadow: 0 2px 8px rgba(220, 38, 38, 0.35) !important;
     }
 
     /* Main Content Area */
@@ -1088,41 +1071,30 @@
     }
 
     .topbar-sync-btn {
-      background: #F0F9FF;
-      color: #0284C7;
-      border: 1px solid #BAE6FD;
-      font-size: 0.78rem;
-      font-weight: 700;
-      padding: 6px 14px;
+      background: rgba(255, 255, 255, 0.14);
+      color: #FFFFFF;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      font-size: 0.82rem;
+      font-weight: 600;
+      padding: 7px 14px;
       border-radius: 9999px;
-      display: inline-flex;
+      display: flex;
       align-items: center;
       gap: 6px;
       cursor: pointer;
-      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-      letter-spacing: -0.01em;
-      white-space: nowrap;
-    }
-    .topbar-sync-btn .sync-icon {
-      font-size: 0.85rem;
-      display: inline-block;
-      line-height: 1;
+      transition: all 0.2s ease;
+      backdrop-filter: blur(8px);
     }
     .topbar-sync-btn:hover {
-      background: #E0F2FE;
-      color: #0369A1;
-      border-color: #7DD3FC;
+      background: rgba(255, 255, 255, 0.24);
+      border-color: rgba(255, 255, 255, 0.45);
       transform: translateY(-1px);
-      box-shadow: 0 3px 8px rgba(14, 165, 233, 0.22);
     }
     .topbar-sync-btn:active {
       transform: translateY(0);
     }
     .topbar-sync-btn.syncing {
-      opacity: 0.9;
-      background: #E0F2FE;
-      color: #0284C7;
+      opacity: 0.8;
       cursor: not-allowed;
     }
     .topbar-sync-btn.syncing .sync-icon {
@@ -2034,6 +2006,7 @@
     .chart-card,
     .settings-box,
     .settings-section,
+    .user-profile-card,
     .ledger-table-container,
     .customer-card,
     .drawer-modal-card {
@@ -3600,7 +3573,7 @@
             <span id="syncIcon" class="sync-icon">🔄</span>
             <span id="syncBtnText" class="hidden sm:inline">Sync</span>
           </button>
-          <span id="lastSyncStatus" class="hidden md:inline" style="font-size: 0.74rem; font-weight: 600; color: #64748B; margin-right: 6px;">Just now</span>
+          <span id="lastSyncStatus" class="hidden md:inline" style="font-size: 0.72rem; color: rgba(255, 255, 255, 0.75); margin-right: 4px;">Just now</span>
 
           <button type="button" class="topbar-voice-btn" onclick="navigateTo('voice'); startContinuousVoice();">
             <span>🎙️</span>
@@ -4058,9 +4031,6 @@
                 />
                 <button type="button" class="btn-action-primary" onclick="submitVoiceCustomerEmail()" style="padding: 8px 16px;">
                   ✓ Save Email
-                </button>
-                <button type="button" class="btn-action-secondary" onclick="submitVoiceConfirmationChoice('confirm')" style="padding: 8px 14px; white-space: nowrap;">
-                  Skip & Save
                 </button>
               </div>
             </div>
@@ -7557,7 +7527,7 @@
       }
 
       // Priority 1: Awaiting Confirmation ("Yes" / "No" / Correction)
-      if ((fsmCurrentState === FSM_STATES.AWAITING_CONFIRMATION || activePendingOperation) && isFinal) {
+      if (fsmCurrentState === FSM_STATES.AWAITING_CONFIRMATION && isFinal) {
         resetConversationSessionTimer();
         const lower = text.toLowerCase();
 
@@ -7665,217 +7635,6 @@
       dispatchVoiceCommand(textToRun, activePendingOperation?.operation_id);
     }
 
-    let mediaRecorder = null;
-    let audioStream = null;
-    let recordedAudioChunks = [];
-    let isRecordingAudio = false;
-    let audioContext = null;
-    let analyserNode = null;
-    let vadCheckInterval = null;
-
-    async function startMediaRecorderVoice() {
-      try {
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-          showToast("Microphone not supported on this browser.", "error");
-          return;
-        }
-        audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        recordedAudioChunks = [];
-
-        const mimeType = (window.MediaRecorder && MediaRecorder.isTypeSupported('audio/webm;codecs=opus'))
-          ? 'audio/webm;codecs=opus'
-          : (window.MediaRecorder && MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4');
-
-        mediaRecorder = new MediaRecorder(audioStream, { mimeType });
-        mediaRecorder.ondataavailable = (e) => {
-          if (e.data && e.data.size > 0) {
-            recordedAudioChunks.push(e.data);
-          }
-        };
-
-        mediaRecorder.onstop = async () => {
-          if (vadCheckInterval) { clearInterval(vadCheckInterval); vadCheckInterval = null; }
-          const audioBlob = new Blob(recordedAudioChunks, { type: mimeType });
-          if (audioBlob.size > 800) {
-            await sendAudioToBackend(audioBlob);
-          }
-          isRecordingAudio = false;
-          document.getElementById('voiceMicBtn').classList.remove('recording-active');
-        };
-
-        mediaRecorder.start(200);
-        isRecordingAudio = true;
-        document.getElementById('voiceMicBtn').classList.add('recording-active');
-        updateFsmBadge(FSM_STATES.CAPTURING_COMMAND);
-        setElectricVisualState('ACTIVE');
-        document.getElementById('voiceStageCaption').textContent = "🔴 Listening (Groq Whisper)... Speak now!";
-
-        // Voice Activity Detection (VAD) via AudioContext
-        try {
-          audioContext = new (window.AudioContext || window.webkitAudioContext)();
-          const source = audioContext.createMediaStreamSource(audioStream);
-          analyserNode = audioContext.createAnalyser();
-          analyserNode.fftSize = 512;
-          source.connect(analyserNode);
-
-          const dataArray = new Uint8Array(analyserNode.frequencyBinCount);
-          let silenceStart = Date.now();
-          let hasSpoken = false;
-
-          vadCheckInterval = setInterval(() => {
-            if (!isRecordingAudio) return;
-            analyserNode.getByteFrequencyData(dataArray);
-            let sum = 0;
-            for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-            const average = sum / dataArray.length;
-
-            if (average > 14) {
-              hasSpoken = true;
-              silenceStart = Date.now();
-              document.getElementById('voiceStageCaption').textContent = "Hearing you... Keep speaking";
-            } else if (hasSpoken) {
-              // 1.3s silence after speech: automatically finish recording and send to Groq!
-              if (Date.now() - silenceStart > 1300) {
-                stopMediaRecorderVoice();
-              }
-            }
-          }, 100);
-        } catch (e) {
-          console.warn("[Audio Engine] VAD init error:", e);
-        }
-
-      } catch (err) {
-        console.error("[Audio Engine] getUserMedia error:", err);
-        showToast("Microphone permission denied: " + err.message, "error");
-        updateFsmBadge(FSM_STATES.ERROR_RECOVERY, err.message);
-      }
-    }
-
-    function stopMediaRecorderVoice() {
-      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-        mediaRecorder.stop();
-      }
-      if (audioStream) {
-        audioStream.getTracks().forEach(track => track.stop());
-        audioStream = null;
-      }
-      if (vadCheckInterval) {
-        clearInterval(vadCheckInterval);
-        vadCheckInterval = null;
-      }
-      isRecordingAudio = false;
-      document.getElementById('voiceMicBtn').classList.remove('recording-active');
-    }
-
-    async function sendAudioToBackend(audioBlob) {
-      voiceCommandInFlight = true;
-      updateFsmBadge(FSM_STATES.PROCESSING);
-      document.getElementById('voiceStageCaption').textContent = "⚡ Groq Whisper AI transcribing...";
-
-      const formData = new FormData();
-      formData.append('file', audioBlob, 'speech.webm');
-      formData.append('session_id', voiceSessionId);
-      if (activePendingOperation && activePendingOperation.operation_id) {
-        formData.append('pending_operation_id', activePendingOperation.operation_id);
-      }
-
-      try {
-        const resp = await fetch('/api/voice-audio', {
-          method: 'POST',
-          body: formData
-        });
-        const data = await resp.json();
-        if (!resp.ok) throw new Error(data.detail || "Audio transcription failed");
-
-        document.getElementById('voiceDialogueBox').style.display = 'flex';
-        document.getElementById('userBubble').style.display = 'block';
-        document.getElementById('userBubbleText').textContent = data.transcribed_text || "(Voice Command)";
-
-        await handleAssistantServerResponse(data);
-      } catch (err) {
-        console.error("[Audio Engine] Error sending audio to FastAPI:", err);
-        showToast("Audio processing error: " + err.message, "error");
-        updateFsmBadge(FSM_STATES.ERROR_RECOVERY, err.message);
-      } finally {
-        voiceCommandInFlight = false;
-        isRecordingAudio = false;
-      }
-    }
-
-    async function handleAssistantServerResponse(data) {
-      document.getElementById('assistantBubble').style.display = 'block';
-      document.getElementById('assistantBubbleText').textContent = data.reply_message;
-
-      startConversationSession();
-
-      const activeOpData = data.pending_operation || (data.pending_transaction ? {
-        operation_id: voiceSessionId,
-        customer_name: data.pending_transaction.customer,
-        amount: data.pending_transaction.amount,
-        transaction_type: data.pending_transaction.type === 'CREDIT' ? 'UDHAAR' : 'JAMA',
-        customer_email: data.pending_transaction.email,
-        status: 'pending'
-      } : null);
-
-      if (data.action_taken === 'waiting_for_customer_email' || (activeOpData && activeOpData.status === 'waiting_for_email')) {
-        activePendingOperation = activeOpData;
-        const emailCard = document.getElementById('voiceEmailPromptCard');
-        if (emailCard) {
-          emailCard.style.display = 'block';
-          const emailInp = document.getElementById('voiceCustomerEmailInput');
-          if (emailInp) {
-            emailInp.value = '';
-            setTimeout(() => emailInp.focus(), 300);
-          }
-        }
-        if (document.getElementById('voiceConfirmCard')) {
-          document.getElementById('voiceConfirmCard').style.display = 'none';
-        }
-      } else if ((data.requires_confirmation || data.state === 'AWAITING_CONFIRMATION') && activeOpData) {
-        activePendingOperation = activeOpData;
-        if (document.getElementById('voiceEmailPromptCard')) {
-          document.getElementById('voiceEmailPromptCard').style.display = 'none';
-        }
-        renderVoiceConfirmCard(activeOpData);
-        updateFsmBadge(FSM_STATES.AWAITING_CONFIRMATION);
-      } else {
-        if (document.getElementById('voiceEmailPromptCard')) document.getElementById('voiceEmailPromptCard').style.display = 'none';
-        document.getElementById('voiceConfirmCard').style.display = 'none';
-        if (data.action_taken === 'committed_transaction') {
-          activePendingOperation = null;
-          showToast("✓ Saved to ledger successfully! Receipt email dispatched.", "success");
-          fetchDashboardData();
-        } else if (data.action_taken === 'cancelled') {
-          activePendingOperation = null;
-          showToast("Transaction cancelled.", "error");
-        } else if (data.action_taken === 'navigate_view' && data.data && data.data.target_view) {
-          navigateTo(data.data.target_view);
-        } else if (data.action_taken === 'prepared_reminder' && data.data) {
-          openReminderModal(data.data.customer_name, '', data.data.balance);
-        } else if (data.action_taken === 'prepared_receipt' && data.data && data.data.transaction_id) {
-          downloadReceiptPdf(data.data.transaction_id);
-        }
-      }
-
-      await new Promise((resolve) => {
-        speakAssistantResponse(data.reply_message, () => {
-          if (data.requires_confirmation || (activePendingOperation && activePendingOperation.status === 'pending')) {
-            updateFsmBadge(FSM_STATES.AWAITING_CONFIRMATION);
-            setTimeout(() => {
-              if (!isRecordingAudio && !voiceCommandInFlight) {
-                startMediaRecorderVoice();
-              }
-            }, 300);
-          } else if (isContinuousVoiceEnabled) {
-            updateFsmBadge(FSM_STATES.LISTENING_IDLE);
-          } else {
-            updateFsmBadge(FSM_STATES.SLEEPING);
-          }
-          resolve();
-        });
-      });
-    }
-
     async function dispatchVoiceCommand(text, pendingOpId = null, actionOverride = "process") {
       voiceCommandInFlight = true;
       safeStopRecognition("dispatching_command", false);
@@ -7903,11 +7662,79 @@
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.detail || "Voice command processing failed");
 
-        await handleAssistantServerResponse(data);
+        // Assistant reply display
+        document.getElementById('assistantBubble').style.display = 'block';
+        document.getElementById('assistantBubbleText').textContent = data.reply_message;
+
+        startConversationSession();
+
+        const activeOpData = data.pending_operation || (data.pending_transaction ? {
+          operation_id: voiceSessionId,
+          customer_name: data.pending_transaction.customer,
+          amount: data.pending_transaction.amount,
+          transaction_type: data.pending_transaction.type === 'CREDIT' ? 'UDHAAR' : 'JAMA',
+          customer_email: data.pending_transaction.email,
+          status: 'pending'
+        } : null);
+
+        if (data.action_taken === 'waiting_for_customer_email' || (activeOpData && activeOpData.status === 'waiting_for_email')) {
+          activePendingOperation = activeOpData;
+          const emailCard = document.getElementById('voiceEmailPromptCard');
+          if (emailCard) {
+            emailCard.style.display = 'block';
+            const emailInp = document.getElementById('voiceCustomerEmailInput');
+            if (emailInp) {
+              emailInp.value = '';
+              setTimeout(() => emailInp.focus(), 300);
+            }
+          }
+          if (document.getElementById('voiceConfirmCard')) {
+            document.getElementById('voiceConfirmCard').style.display = 'none';
+          }
+        } else if ((data.requires_confirmation || data.state === 'AWAITING_CONFIRMATION') && activeOpData) {
+          activePendingOperation = activeOpData;
+          if (document.getElementById('voiceEmailPromptCard')) {
+            document.getElementById('voiceEmailPromptCard').style.display = 'none';
+          }
+          renderVoiceConfirmCard(activeOpData);
+          updateFsmBadge(FSM_STATES.AWAITING_CONFIRMATION);
+        } else {
+          if (document.getElementById('voiceEmailPromptCard')) document.getElementById('voiceEmailPromptCard').style.display = 'none';
+          document.getElementById('voiceConfirmCard').style.display = 'none';
+          if (data.action_taken === 'committed_transaction') {
+            activePendingOperation = null;
+            showToast("✓ Saved to ledger successfully! Receipt email dispatched.", "success");
+            fetchDashboardData();
+          } else if (data.action_taken === 'cancelled') {
+            activePendingOperation = null;
+            showToast("Transaction cancelled.", "error");
+          } else if (data.action_taken === 'navigate_view' && data.data && data.data.target_view) {
+            navigateTo(data.data.target_view);
+          } else if (data.action_taken === 'prepared_reminder' && data.data) {
+            openReminderModal(data.data.customer_name, '', data.data.balance);
+          } else if (data.action_taken === 'prepared_receipt' && data.data && data.data.transaction_id) {
+            downloadReceiptPdf(data.data.transaction_id);
+          }
+        }
+
+        await new Promise((resolve) => {
+          speakAssistantResponse(data.reply_message, () => {
+            if (data.requires_confirmation) updateFsmBadge(FSM_STATES.AWAITING_CONFIRMATION);
+            else if (isContinuousVoiceEnabled) updateFsmBadge(FSM_STATES.LISTENING_IDLE);
+            else updateFsmBadge(FSM_STATES.SLEEPING);
+            resolve();
+          });
+        });
+
       } catch (err) {
         console.error("[Voice Engine] Error processing voice command:", err);
         showToast(err.message, "error");
         updateFsmBadge(FSM_STATES.ERROR_RECOVERY, err.message);
+        if (isContinuousVoiceEnabled && !isManualStop) {
+          setTimeout(() => {
+            safeStartRecognition("error_recovery_resume");
+          }, 2500);
+        }
       } finally {
         voiceCommandInFlight = false;
         lastSubmittedTranscript = '';
@@ -7917,7 +7744,7 @@
     // SpeechSynthesis TTS with 100% ACOUSTIC LOOP IMMUNITY
     function speakAssistantResponse(text, onComplete) {
       if (isTtsMuted || !('speechSynthesis' in window)) {
-        if (!isManualStop) {
+        if (isContinuousVoiceEnabled && !isManualStop) {
           safeStartRecognition("tts_muted_resume");
         }
         if (onComplete) onComplete();
@@ -7952,16 +7779,16 @@
         hasFinished = true;
         console.log("[Voice Engine] Assistant TTS playback finished.");
 
-        // CRITICAL STEP 2: Enforce 400ms grace window after playback ends
-        ignoreSpeechTimestamp = Date.now() + 400;
+        // CRITICAL STEP 2: Enforce 600ms grace window after playback ends
+        ignoreSpeechTimestamp = Date.now() + 600;
 
         setTimeout(() => {
           isTtsSpeaking = false;
-          if (onComplete) onComplete();
-          if (!isManualStop) {
+          if (isContinuousVoiceEnabled && !isManualStop && !voiceCommandInFlight) {
             safeStartRecognition("tts_playback_finished");
           }
-        }, 400);
+          if (onComplete) onComplete();
+        }, 600);
       };
 
       utterance.onend = finishPlayback;
@@ -7996,25 +7823,28 @@
     }
 
     async function submitVoiceConfirmationChoice(action) {
-      const opId = activePendingOperation ? activePendingOperation.operation_id : null;
+      if (!activePendingOperation) return;
       await dispatchVoiceCommand(
         action === 'confirm' ? "yes" : "no",
-        opId,
+        activePendingOperation.operation_id,
         action
       );
     }
 
     function toggleContinuousVoice() {
-      if (isRecordingAudio) {
-        stopMediaRecorderVoice();
-      } else {
-        startMediaRecorderVoice();
-      }
+      if (isContinuousVoiceEnabled) stopContinuousVoice();
+      else startContinuousVoice();
     }
 
     function startContinuousVoice() {
-      startMediaRecorderVoice();
-    }
+      if (!speechRecognizer) setupSpeechRecognition();
+      isManualStop = false;
+      accumulatedFinalTranscript = '';
+      if (speechDebounceTimer) { clearTimeout(speechDebounceTimer); speechDebounceTimer = null; }
+      if (restartTimeoutId) { clearTimeout(restartTimeoutId); restartTimeoutId = null; }
+      isContinuousVoiceEnabled = true;
+      startConversationSession();
+      updateFsmBadge(FSM_STATES.LISTENING_IDLE);
 
       document.getElementById('voiceToggleModeBtn').classList.add('active');
       document.getElementById('voiceToggleModeIcon').textContent = '⏹️';
@@ -10032,6 +9862,7 @@ void main() {
           // Settings
           '.settings-box',
           '.settings-section',
+          '.user-profile-card',
           '.store-info-box',
           // Modals & Drawers
           '.drawer-modal-card',
@@ -10401,6 +10232,5 @@ void main() {
       BorderGlow.initAll();
     }
   </script>
-  <script src="/static/app.js" defer></script>
 </body>
 </html>
