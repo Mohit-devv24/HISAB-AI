@@ -84,7 +84,7 @@ Small shopkeepers across India lose significant revenue and hours of productivit
 
 ---
 
-## 🎙️ 3. "Suno Hisab" Voice Assistant Architecture & FSM
+## 🎙️ 7. "Suno Hisab" Voice Assistant Architecture & FSM
 
 The frontend client operates on a deterministic **8-State Finite State Machine (FSM)**:
 
@@ -140,7 +140,7 @@ The frontend client operates on a deterministic **8-State Finite State Machine (
 
 ---
 
-## 🔄 4. Two-Step Financial Workflow (Prepare → Confirm)
+## 🔄 8. Two-Step Financial Workflow (Prepare → Confirm)
 
 HisabAI strictly separates financial preparation from database mutation:
 
@@ -170,7 +170,7 @@ HisabAI strictly separates financial preparation from database mutation:
 
 ---
 
-## 🗣️ 5. Supported Voice Commands & Queries
+## 🗣️ 9. Supported Voice Commands & Queries
 
 | Category | Example Spoken Hindi / Hinglish Phrase | Action Taken |
 | :--- | :--- | :--- |
@@ -188,7 +188,7 @@ HisabAI strictly separates financial preparation from database mutation:
 
 ---
 
-## 📂 6. Directory Layout
+## 📂 10. Directory Layout
 
 ```text
 HisabAI/
@@ -207,7 +207,7 @@ HisabAI/
 
 ---
 
-## 🚀 7. Quickstart Setup & Run
+## 🚀 11. Quickstart Setup & Run
 
 ### Prerequisites
 - Python 3.11 or higher
@@ -260,7 +260,7 @@ Open **[http://localhost:8000](http://localhost:8000)** in Chrome, Edge, or Safa
 
 ---
 
-## 🧪 8. Test Suite Verification (31 Tests)
+## 🧪 12. Test Suite Verification (31 Tests)
 
 The automated test suite in `test_app.py` runs with an isolated in-memory SQLite database (`sqlite:///:memory:`) and tests all critical components:
 
@@ -287,7 +287,7 @@ The automated test suite in `test_app.py` runs with an isolated in-memory SQLite
 
 ---
 
-## 🔒 9. Security, Privacy & Browser Constraints
+## 🔒 13. Security, Privacy & Browser Constraints
 
 - **Credential Redaction**: API keys are strictly redacted from error messages and logs before reaching clients.
 - **Browser SpeechRecognition Boundaries**:
