@@ -12,7 +12,7 @@ import secrets
 from typing import List, Literal, Optional
 from zoneinfo import ZoneInfo
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import Column, DateTime, Enum as SQLEnum, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, Enum as SQLEnum, Float, ForeignKey, Integer, String
 from sqlalchemy.ext.hybrid import hybrid_property
 from database import Base
 
@@ -110,6 +110,7 @@ class Transaction(Base):
     customer_phone = Column(String(20), nullable=True)
     customer_email = Column(String(120), nullable=True, index=True)
     notes = Column(String(255), nullable=True)
+    description = Column(String(255), nullable=True)
     # Primary authoritative monetary storage is integer paise (1 Rupee = 100 Paise)
     amount_paise = Column(Integer, nullable=False)
     # Kept in sync for backwards compatibility and direct display
@@ -123,6 +124,10 @@ class Transaction(Base):
     )
 
     def __init__(self, **kwargs):
+        if "description" in kwargs and "notes" not in kwargs:
+            kwargs["notes"] = kwargs["description"]
+        elif "notes" in kwargs and "description" not in kwargs:
+            kwargs["description"] = kwargs["notes"]
         if "amount" in kwargs and "amount_paise" not in kwargs:
             kwargs["amount_paise"] = int(round(float(kwargs["amount"]) * 100))
         elif "amount_paise" in kwargs and "amount" not in kwargs:
@@ -164,6 +169,18 @@ class PaymentReminder(Base):
         nullable=False,
         index=True
     )
+
+
+class Reminder(Base):
+    """
+    SQLAlchemy model for scheduled reminders (Cron / APScheduler jobs).
+    """
+    __tablename__ = "reminders"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    transaction_id = Column(Integer, index=True, nullable=True)
+    reminder_date = Column(DateTime, nullable=False, default=datetime.utcnow)
+    is_sent = Column(Boolean, default=False)
 
 
 class TransactionReceipt(Base):
@@ -558,8 +575,11 @@ class VoiceAssistantResponse(BaseModel):
     pending_operation: Optional[PendingOperationData] = None
     data: Optional[dict] = Field(None, description="Optional payload for UI cards or charts")
     status: Optional[str] = Field("success", description="Status string for compatibility")
+    success: Optional[bool] = Field(True, description="Success boolean flag")
+    message: Optional[str] = Field(None, description="Message string for compatibility")
     intent: Optional[str] = Field(None, description="Intent classification string for compatibility")
     spoken_text: Optional[str] = Field(None, description="Spoken speech transcript for compatibility")
+    transcribed_text: Optional[str] = Field(None, description="Raw speech transcribed from audio recording")
     state: Optional[str] = Field("IDLE", description="FSM state: IDLE | AWAITING_CONFIRMATION")
     pending_transaction: Optional[dict] = Field(None, description="Pending transaction dict for session state machine")
 
@@ -569,6 +589,10 @@ class VoiceAssistantResponse(BaseModel):
             self.spoken_text = self.reply_message
         if not self.intent:
             self.intent = self.action_taken
+        if not self.message:
+            self.message = self.reply_message
+        if self.message and not self.reply_message:
+            self.reply_message = self.message
         return self
 
 

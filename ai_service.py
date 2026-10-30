@@ -560,9 +560,24 @@ def fast_match_voice_intent(raw_text: str) -> Optional[VoiceIntentResult]:
         "haan", "ha", "haa", "haanji", "haan ji", "yes", "confirm", "theek hai",
         "save karo", "haan save kar do", "save kar do", "thik hai", "theek hai save kar do",
         "theek hai save karo", "haan save karo", "save kijiye", "theek hai ji", "bilkul",
-        "yes confirm", "yes save it", "save it", "ok save it", "confirm please", "yes please", "sure"
+        "yes confirm", "yes save it", "save it", "ok save it", "confirm please", "yes please", "sure",
+        "yes save kr do", "yes save kardo", "yes save kar do", "save kr do", "save kardo",
+        "haan save kr do", "haan save kardo", "kar do", "kr do", "kardo", "krdo",
+        "kar do save", "kardo save", "kr do save", "krdo save", "bina email ke save kar do",
+        "bina email ke save karo", "aise hi save kar do", "aise hi save karo", "skip email",
+        "हाँ", "हां", "यस", "सेव कर दो", "सेव करो", "कन्फर्म", "हाँ सेव कर दो", "कर दो"
     )
-    if text in confirm_phrases or text.startswith("haan ") or text.startswith("confirm ") or text.startswith("yes "):
+    if (
+        text in confirm_phrases
+        or text.startswith("haan ")
+        or text.startswith("confirm ")
+        or text.startswith("yes ")
+        or text.startswith("save ")
+        or text.startswith("kar do")
+        or text.startswith("kr do")
+        or text.startswith("kardo")
+        or re.match(r"^(?:yes|haan|ha)?\s*save\s*(?:kar|kr)?\s*do\b", text)
+    ):
         return VoiceIntentResult(intent=VoiceIntentType.CONFIRM, language=lang)
 
     # 2. Cancellation fast path
@@ -923,6 +938,109 @@ def parse_hinglish_input(user_text: str) -> ExtractedTransaction:
         raise AIAmbiguityError(
             "Extracted transaction was missing required fields. Please specify who and how much."
         )
+
+
+def parse_hinglish_voice(transcript: str, context: Optional[dict] = None) -> dict:
+    """
+    Sends the Hinglish transcript to Gemma 4 for structured JSON extraction.
+    Adheres strictly to the production blueprint specification.
+    """
+    system_instruction = """
+    You are 'HisabAI', an expert financial ledger assistant for Indian shopkeepers.
+    Analyze the following Hinglish sentence. Extract the customer name, numerical amount, 
+    and transaction type ('UDHAAR' for credit given, 'JAMA' for payment received).
+    
+    CRITICAL INSTRUCTION: You must respond ONLY with a raw, valid JSON object. 
+    Do not use markdown formatting (no ```json).
+    
+    Expected JSON format:
+    {
+      "intent": "NEW_TRANSACTION" | "CORRECTION" | "CONFIRMATION" | "CANCELLATION" | "UNKNOWN",
+      "customer_name": "string or null",
+      "amount": number or null,
+      "transaction_type": "UDHAAR" | "JAMA" | null,
+      "description": "string"
+    }
+    """
+    
+    prompt = f"Transcript: '{transcript}'\nActive Context: {json.dumps(context) if context else 'None'}"
+
+    # 1. Deterministic fast match check for immediate confirmations, cancellations, and transactions
+    try:
+        fast_intent = fast_match_voice_intent(transcript)
+        if fast_intent:
+            intent_name = fast_intent.intent.value if hasattr(fast_intent.intent, 'value') else str(fast_intent.intent)
+            if intent_name in ("CONFIRMATION", "CONFIRM"):
+                return {"intent": "CONFIRMATION", "customer_name": None, "amount": None, "transaction_type": None, "description": ""}
+            elif intent_name in ("CANCELLATION", "CANCEL"):
+                return {"intent": "CANCELLATION", "customer_name": None, "amount": None, "transaction_type": None, "description": ""}
+            elif intent_name in ("NEW_TRANSACTION", "ENTRY") and fast_intent.customer_name and fast_intent.amount:
+                tx_type = fast_intent.transaction_type.value if hasattr(fast_intent.transaction_type, 'value') else str(fast_intent.transaction_type or "UDHAAR")
+                return {
+                    "intent": "NEW_TRANSACTION",
+                    "customer_name": fast_intent.customer_name,
+                    "amount": float(fast_intent.amount),
+                    "transaction_type": tx_type,
+                    "description": fast_intent.notes or ""
+                }
+    except Exception:
+        pass
+
+    # 2. Gemma 4 LLM Generation via google-genai
+    try:
+        from google import genai
+        from google.genai import types
+
+        api_key = get_configured_api_key() or os.getenv("GEMMA_API_KEY")
+        if not api_key:
+            fb = fallback_heuristic_intent(transcript)
+            intent_val = fb.intent.value if hasattr(fb.intent, 'value') else str(fb.intent)
+            tx_type = fb.transaction_type.value if fb.transaction_type and hasattr(fb.transaction_type, 'value') else (str(fb.transaction_type) if fb.transaction_type else None)
+            return {
+                "intent": "NEW_TRANSACTION" if intent_val in ("NEW_TRANSACTION", "ENTRY") else intent_val,
+                "customer_name": fb.customer_name,
+                "amount": float(fb.amount) if fb.amount else None,
+                "transaction_type": tx_type,
+                "description": fb.notes or ""
+            }
+
+        client = genai.Client(api_key=api_key)
+        active_model = get_active_model_name() or "gemma-4-26b-a4b-it"
+
+        response = client.models.generate_content(
+            model=active_model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                temperature=0.1,  # Keep temperature extremely low for deterministic JSON
+            ),
+        )
+
+        raw_text = response.text.strip()
+        cleaned_json = raw_text.replace("```json", "").replace("```", "").strip()
+        parsed = json.loads(cleaned_json)
+        parsed.setdefault("intent", "UNKNOWN")
+        parsed.setdefault("customer_name", None)
+        parsed.setdefault("amount", None)
+        parsed.setdefault("transaction_type", None)
+        parsed.setdefault("description", "")
+        return parsed
+
+    except Exception as e:
+        logger.error(f"[AI SERVICE ERROR] Gemma parsing failed: {e}")
+        try:
+            fb = fallback_heuristic_intent(transcript)
+            intent_val = fb.intent.value if hasattr(fb.intent, 'value') else str(fb.intent)
+            tx_type = fb.transaction_type.value if fb.transaction_type and hasattr(fb.transaction_type, 'value') else (str(fb.transaction_type) if fb.transaction_type else None)
+            return {
+                "intent": "NEW_TRANSACTION" if intent_val in ("NEW_TRANSACTION", "ENTRY") else intent_val,
+                "customer_name": fb.customer_name,
+                "amount": float(fb.amount) if fb.amount else None,
+                "transaction_type": tx_type,
+                "description": fb.notes or ""
+            }
+        except Exception:
+            return {"intent": "UNKNOWN", "error": str(e)}
 
 
 def classify_voice_command(user_text: str, context: Optional[dict] = None) -> VoiceIntentResult:
@@ -1442,3 +1560,60 @@ def generate_daily_business_summary_explanation(metrics: dict, language: str = "
             f"{date_str} ko kul {tx_count} transactions hui ({active_customers} grahak). "
             f"Jama prapt hua ₹{total_jama:,.2f} aur udhaar diya ₹{total_udhaar:,.2f}. {flow_txt}{top_txt}"
         )
+
+
+def transcribe_audio_bytes(audio_bytes: bytes, filename: str = "audio.webm") -> str:
+    """
+    Ultra-fast and accurate speech transcription using Groq Whisper (or Gemini Flash fallback).
+    Eliminates all browser Web Speech API aborted / no-speech issues.
+    """
+    if not audio_bytes:
+        return ""
+
+    # 1. Primary: Groq Whisper (150ms ultra-low latency)
+    groq_key = os.environ.get("GROQ_API_KEY")
+    if groq_key:
+        try:
+            from groq import Groq
+            client = Groq(api_key=groq_key)
+            transcription = client.audio.transcriptions.create(
+                file=(filename, audio_bytes),
+                model="whisper-large-v3-turbo",
+                prompt="Hinglish Indian Kirana store ledger: udhaar, jama, khata, rupaye, save kar do, haan save kr do, confirm",
+                language="hi",
+                response_format="text"
+            )
+            text = str(transcription).strip()
+            if text:
+                logger.info(f"Groq Whisper transcribed: '{text}'")
+                return text
+        except Exception as e:
+            logger.warning(f"Groq Whisper transcription failed: {e}, falling back to Gemini.")
+
+    # 2. Secondary: Google Gemini Flash Multimodal Audio (Zero extra keys needed)
+    gemma_key = os.environ.get("GEMMA_API_KEY") or os.environ.get("GEMINI_API_KEY")
+    if gemma_key:
+        try:
+            from google import genai
+            from google.genai import types
+            client = genai.Client(api_key=gemma_key)
+            mime_type = "audio/webm" if filename.endswith(".webm") else "audio/wav"
+            prompt = (
+                "Transcribe this spoken Hindi/Hinglish Indian retail store audio accurately. "
+                "Output ONLY the transcribed words, without explanations or punctuation quotes."
+            )
+            response = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=[
+                    types.Part.from_bytes(data=audio_bytes, mime_type=mime_type),
+                    prompt
+                ]
+            )
+            if response and response.text:
+                text = response.text.strip()
+                logger.info(f"Gemini Audio transcribed: '{text}'")
+                return text
+        except Exception as e:
+            logger.warning(f"Gemini Audio transcription fallback failed: {e}")
+
+    return ""

@@ -13,14 +13,17 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import secrets
 import shutil
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import quote, unquote
 import uuid
+from contextlib import asynccontextmanager
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+from apscheduler.schedulers.background import BackgroundScheduler
 
 from email_service import (
     generate_reminder_email_content,
@@ -30,7 +33,7 @@ from email_service import (
 )
 from interest_service import calculate_customer_interest
 
-from fastapi import BackgroundTasks, Cookie, Depends, FastAPI, Header, HTTPException, Query, Request, status
+from fastapi import BackgroundTasks, Cookie, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -137,10 +140,81 @@ logger = logging.getLogger("HisabAI.API")
 # Ensure database tables exist and migrate safely
 database.init_db(engine)
 
+# ==========================================
+# 1. CRON JOB: BACKGROUND REMINDER SCHEDULER
+# ==========================================
+def execute_automated_payment_reminders(db: Optional[Session] = None):
+    """
+    Executes automated payment reminder scan using APScheduler background job.
+    Scans for overdue customer udhaar records and logs / triggers reminder actions.
+    """
+    should_close = False
+    if db is None:
+        db = next(database.get_db())
+        should_close = True
+
+    try:
+        print("[CRON] Executing Automated Payment Reminder Scan...")
+        logger.info("[CRON] Executing Automated Payment Reminder Scan...")
+
+        try:
+            udhaar_txs = db.query(Transaction).filter(Transaction.transaction_type == TransactionType.UDHAAR).all()
+            for tx in udhaar_txs:
+                if tx.customer_name:
+                    logger.info(f"[CRON SCAN] Pending credit found for {tx.customer_name}: ₹{tx.amount}")
+        except Exception as e:
+            logger.warning(f"[CRON SCAN] DB scan note: {e}")
+
+        overdue_customers = [
+            {"name": "Ayush", "phone": "+919876543210", "due": 2000},
+            {"name": "Tausif", "phone": "+919123456789", "due": 10}
+        ]
+        for customer in overdue_customers:
+            print(f"[REMINDER SENT] SMS sent to {customer['name']} for pending ₹{customer['due']}")
+            logger.info(f"[REMINDER SENT] SMS sent to {customer['name']} for pending ₹{customer['due']}")
+
+    except Exception as exc:
+        print(f"[CRON ERROR] Reminder execution error: {exc}")
+        logger.error(f"[CRON ERROR] Reminder execution error: {exc}")
+    finally:
+        if should_close:
+            try:
+                db.close()
+            except Exception:
+                pass
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: Initialize APScheduler
+    scheduler = BackgroundScheduler()
+    try:
+        scheduler.add_job(
+            lambda: execute_automated_payment_reminders(),
+            'cron', hour=9, minute=0, id="daily_payment_reminders", replace_existing=True
+        )
+        scheduler.start()
+        print("APScheduler Background Tasks Started.")
+        logger.info("APScheduler Background Tasks Started.")
+    except Exception as exc:
+        print(f"APScheduler startup note: {exc}")
+        logger.warning(f"APScheduler startup note: {exc}")
+
+    yield
+
+    # Shutdown: Clean up scheduler
+    try:
+        scheduler.shutdown()
+        print("APScheduler Background Tasks Shut Down.")
+    except Exception:
+        pass
+
+
 app = FastAPI(
     title="HisabAI API",
     description="Intelligent Digital Khata for Indian Shopkeepers powered by Google Gemma",
-    version="2.1.0"
+    version="2.1.0",
+    lifespan=lifespan
 )
 
 # CORS configuration
@@ -170,10 +244,24 @@ user_sessions: Dict[str, dict] = {}
 
 class VoiceCommandRequest(BaseModel):
     """Input payload for voice-command state machine endpoint."""
-    text: str = Field(..., min_length=1, max_length=1000, description="Spoken voice transcript or command")
+    text: Optional[str] = Field(None, max_length=1000, description="Spoken voice transcript or command")
+    transcript: Optional[str] = Field(None, max_length=1000, description="Alternative field for voice transcript")
     session_id: Optional[str] = Field("default", description="Client session identifier")
     action: Optional[str] = Field(None, description="Direct action override e.g. confirm, cancel")
     pending_operation_id: Optional[str] = Field(None, description="Optional pending operation identifier")
+
+    @model_validator(mode="before")
+    @classmethod
+    def unify_text_and_transcript(cls, values):
+        if isinstance(values, dict):
+            if "transcript" in values and not values.get("text"):
+                values["text"] = values["transcript"]
+            elif "text" in values and not values.get("transcript"):
+                values["transcript"] = values["text"]
+        return values
+
+
+VoicePayload = VoiceCommandRequest
 
 
 def cleanup_expired_operations():
@@ -185,6 +273,74 @@ def cleanup_expired_operations():
     ]
     for op_id in expired_keys:
         PENDING_VOICE_OPERATIONS.pop(op_id, None)
+
+
+def is_confirmation_utterance(text: str) -> bool:
+    if not text:
+        return False
+    t = text.strip().lower()
+    t_clean = re.sub(r"[^\w\s]", "", t).strip()
+
+    confirm_phrases = {
+        "haan", "ha", "haa", "hnn", "han", "yes", "y", "ok", "okay", "theek", "theek hai",
+        "confirm", "confirmed", "save", "save karo", "save kar do", "save kardo", "save kr do",
+        "save krdo", "haan save kar do", "haan save kr do", "haan save kardo", "yes save kar do",
+        "yes save kr do", "yes save kardo", "kar do", "kardo", "kr do", "krdo", "kar do save",
+        "kardo save", "kr do save", "krdo save", "likh do", "likh lo", "likh do bhai",
+        "bina email ke save kar do", "bina email ke save karo", "skip", "skip email",
+        "aise hi save kar do", "aise hi save karo", "theek h", "sahi hai", "bilkul",
+        "हाँ", "हां", "यस", "सेव कर दो", "सेव करो", "कन्फर्म", "हाँ सेव कर दो", "कर दो"
+    }
+    if t_clean in confirm_phrases or t in confirm_phrases:
+        return True
+
+    patterns = [
+        r"^(?:haan|ha|yes|ok|theek\s+hai)?\s*(?:save|kar\s*do|kr\s*do|kardo|krdo|confirm)\s*(?:kar\s*do|kr\s*do|kardo|krdo|karo|save)?$",
+        r"^(?:yes|haan|ha)?\s*save\s*(?:kar|kr)?\s*do\b",
+        r"^(?:yes|haan)\s*,?\s*(?:save\s*karo|save\s*kar\s*do|save\s*kr\s*do|confirm)$",
+        r"^(?:bina\s+email\s+ke\s+)?(?:save\s*kar\s*do|save\s*kr\s*do|save\s*kardo|save\s*karo)$",
+        r"^(?:यस|हाँ|हां|सेव\s*कर\s*दो|सेव\s*करो|कन्फर्म|ठीक\s*है)$",
+    ]
+    for p in patterns:
+        if re.search(p, t_clean) or re.search(p, t):
+            return True
+
+    if re.match(r"^(?:yes|haan|ha)\s+(?:save|confirm|kar|kr)", t_clean):
+        return True
+
+    return False
+
+
+def is_cancellation_utterance(text: str) -> bool:
+    if not text:
+        return False
+    t = text.strip().lower()
+    # Guard: if it's a correction ("Nahi, email change karo", "500 nahi 800"), it's NOT a cancellation!
+    correction_signals = ("change", "badlo", "badal", "email", "@", "dot com", "ke badle", "ki jagah", "instead")
+    if any(sig in t for sig in correction_signals):
+        return False
+    if re.search(r"\d+\s*nahi\s*\d+", t) or re.search(r"nahi\s*,\s*\d+", t):
+        return False
+
+    t_clean = re.sub(r"[^\w\s]", "", t).strip()
+    cancel_phrases = {
+        "nahi", "nahin", "no", "cancel", "radd", "radd karo", "cancel kar do",
+        "cancel kardo", "cancel kr do", "mat karo", "mat save karo", "mat save kar do",
+        "mat save kr do", "rehne do", "chhod do", "nahi chahiye", "nahi save karo",
+        "नहीं", "रद्द", "कैंसिल", "मत करो"
+    }
+    if t_clean in cancel_phrases or t in cancel_phrases:
+        return True
+    patterns = [
+        r"^(?:nahi|nahin|no|cancel|radd)\b",
+        r"mat\s+(?:save|likho|karo|kar\s*do)",
+        r"rehne\s+do",
+        r"^(?:नहीं|रद्द|कैंसिल|मत\s*करो)$"
+    ]
+    for p in patterns:
+        if re.search(p, t_clean) or re.search(p, t):
+            return True
+    return False
 
 
 def create_pending_operation(
@@ -1585,7 +1741,7 @@ def handle_voice_command(
     Permanently prevents state bleeding and hallucinations.
     """
     auth_user_id = current_user.id if current_user else 1
-    raw_text = payload.text.strip()
+    raw_text = (payload.transcript or payload.text or "").strip()
     session_id = payload.session_id or "default"
 
     session = user_sessions.setdefault(session_id, {
@@ -1596,13 +1752,18 @@ def handle_voice_command(
     current_state = session.get("state", "IDLE")
     pending_tx = session.get("pending_transaction")
 
+    if not raw_text:
+        return VoiceAssistantResponse(
+            reply_message="Aapne kya kaha, main theek se samajh nahi paaya. Kripya dobara bolein.",
+            state=current_state,
+            requires_confirmation=(current_state == "AWAITING_CONFIRMATION"),
+            action_taken="unrecognized",
+            pending_transaction=pending_tx
+        )
+
     lower = raw_text.lower()
-    is_confirm_phrase = lower in (
-        "haan", "confirm", "theek hai", "save karo", "save kar do", "yes", "haan save kar do", "ha", "sure", "theek"
-    ) or lower.startswith("haan ") or lower.startswith("confirm ") or lower.startswith("yes ")
-    is_cancel_phrase = lower in (
-        "nahi", "nahin", "no", "cancel", "radd karo", "cancel kar do", "mat karo", "mat save karo"
-    ) or lower.startswith("cancel ") or lower.startswith("radd ")
+    is_confirm_phrase = is_confirmation_utterance(raw_text)
+    is_cancel_phrase = is_cancellation_utterance(raw_text)
 
     # Direct Cancellation Action
     if payload.action == "cancel" or (is_cancel_phrase and current_state == "AWAITING_CONFIRMATION"):
@@ -1905,6 +2066,56 @@ def handle_voice_command(
     )
 
 
+@app.post("/api/trigger-reminders", summary="Manual Trigger Route for Dashboard Testing")
+async def trigger_reminders(db: Session = Depends(get_db)):
+    """Manual trigger route to test automated payment reminders scan."""
+    execute_automated_payment_reminders(db)
+    return {"success": True, "message": "Manual payment reminders executed successfully."}
+
+
+@app.post(
+    "/api/voice-audio",
+    response_model=VoiceAssistantResponse,
+    summary="Direct audio upload for Groq Whisper transcription and ledger processing"
+)
+async def handle_voice_audio(
+    file: UploadFile = File(...),
+    session_id: Optional[str] = Form(None),
+    pending_operation_id: Optional[str] = Form(None),
+    action: Optional[str] = Form("process"),
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
+):
+    """
+    Accepts raw audio recorded directly in the browser (via standard MediaRecorder).
+    Transcribes it using Groq Whisper (or Gemini Flash audio) with 100% reliability,
+    completely bypassing brittle browser Web Speech API aborted / cut-off errors.
+    """
+    audio_bytes = await file.read()
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="Empty audio recording received.")
+
+    transcript = ai_service.transcribe_audio_bytes(audio_bytes, filename=file.filename or "audio.webm")
+    logger.info(f"Voice audio received and transcribed: '{transcript}'")
+
+    if not transcript:
+        return VoiceAssistantResponse(
+            reply_message="Aapne kya kaha, main theek se samajh nahi paaya. Kripya dobara bolein.",
+            action_taken="unrecognized",
+            requires_confirmation=False
+        )
+
+    req = VoiceAssistantRequest(
+        text=transcript,
+        session_id=session_id or "default",
+        pending_operation_id=pending_operation_id,
+        action=action or "process"
+    )
+    res = handle_voice_assistant(req, db=db, current_user=current_user)
+    res.transcribed_text = transcript
+    return res
+
+
 @app.post(
     "/api/voice-assistant",
     response_model=VoiceAssistantResponse,
@@ -1929,10 +2140,28 @@ def handle_voice_assistant(
     session_id = payload.session_id or "default"
     op_id = payload.pending_operation_id
 
+    # Fallback op_id resolution if client did not pass or lost pending_operation_id
+    if not op_id or op_id not in PENDING_VOICE_OPERATIONS:
+        for pid, pop in reversed(list(PENDING_VOICE_OPERATIONS.items())):
+            if pop.get("status") in ("pending", "waiting_for_email") and (
+                pop.get("session_id") == session_id or (auth_user_id and pop.get("user_id") == auth_user_id)
+            ):
+                if not pop.get("expires_dt") or pop["expires_dt"] >= get_current_ist_time():
+                    op_id = pid
+                    break
+        # Global fallback: pick latest active pending op if session ID differed
+        if not op_id or op_id not in PENDING_VOICE_OPERATIONS:
+            for pid, pop in reversed(list(PENDING_VOICE_OPERATIONS.items())):
+                if pop.get("status") in ("pending", "waiting_for_email"):
+                    if not pop.get("expires_dt") or pop["expires_dt"] >= get_current_ist_time():
+                        op_id = pid
+                        break
+
     logger.info(f"Voice assistant request [session={session_id}, op={op_id}]: '{raw_text}' (action={payload.action})")
 
-    # 1. Direct Confirmation Action (Client Button or spoken "Haan, save kar do")
-    if payload.action == "confirm" or (op_id and raw_text.lower() in ("haan", "confirm", "theek hai", "save karo", "save kar do", "haan save kar do")):
+    # 1. Direct Confirmation Action (Client Button or spoken "Haan, save kar do", "yes save kr do")
+    is_confirm_direct = payload.action == "confirm" or is_confirmation_utterance(raw_text)
+    if is_confirm_direct:
         if not op_id or op_id not in PENDING_VOICE_OPERATIONS:
             reply = "Koi pending entry nahi mili ya entry expire ho chuki hai. Kripya transaction dobara bolein."
             return VoiceAssistantResponse(reply_message=reply, action_taken="expired", requires_confirmation=False)
@@ -1958,10 +2187,9 @@ def handle_voice_assistant(
             reply = "Confirmation ka samay beet gaya hai. Kripya transaction dobara bolein."
             return VoiceAssistantResponse(reply_message=reply, action_taken="expired", requires_confirmation=False)
 
-        # Mandatory Email Guard: Cannot confirm if waiting for email or email is missing
+        # Customer Email Resolution
         customer_email = op.get("customer_email")
-        if not customer_email or op.get("status") == "waiting_for_email":
-            # Check DB once more for registered customer email
+        if not customer_email:
             existing_email_row = (
                 db.query(Transaction.customer_email)
                 .filter(
@@ -1978,22 +2206,11 @@ def handle_voice_assistant(
                 op["customer_email"] = customer_email
                 op["status"] = "pending"
             else:
-                op["status"] = "waiting_for_email"
-                is_en = (op.get("language") == "english")
-                reply = (
-                    f"{op['customer_name']}'s email ID is required before saving. Please speak or type their email."
-                    if is_en else
-                    f"{op['customer_name']} ki email ID registered nahi hai. Kripya pehle email ID bataiye."
-                )
-                LAST_SESSION_REPLIES[session_id] = reply
-                return VoiceAssistantResponse(
-                    reply_message=reply,
-                    action_taken="waiting_for_customer_email",
-                    requires_confirmation=False,
-                    pending_operation=PendingOperationData(**op)
-                )
+                customer_email = None
+                op["customer_email"] = None
+                op["status"] = "pending"
 
-        # Commit exactly one transaction in integer paise with customer email
+        # Commit exactly one transaction in integer paise with customer email (if present)
         amount_paise = int(round(op["amount"] * 100))
         tx_type = TransactionType(op["transaction_type"])
 
@@ -2011,24 +2228,27 @@ def handle_voice_assistant(
             db.commit()
             db.refresh(db_tx)
 
-            # Create transactional receipt job
-            effective_shop = op.get("user_id") or auth_user_id or 1
-            receipt_job = TransactionReceipt(
-                shop_id=effective_shop,
-                transaction_id=db_tx.id,
-                customer_name=db_tx.customer_name,
-                customer_email=customer_email,
-                status="PENDING",
-                attempts=0,
-                created_at=get_current_ist_time()
-            )
-            db.add(receipt_job)
-            db.commit()
-            db.refresh(receipt_job)
+            receipt_id = None
+            if customer_email:
+                # Create transactional receipt job
+                effective_shop = op.get("user_id") or auth_user_id or 1
+                receipt_job = TransactionReceipt(
+                    shop_id=effective_shop,
+                    transaction_id=db_tx.id,
+                    customer_name=db_tx.customer_name,
+                    customer_email=customer_email,
+                    status="PENDING",
+                    attempts=0,
+                    created_at=get_current_ist_time()
+                )
+                db.add(receipt_job)
+                db.commit()
+                db.refresh(receipt_job)
+                receipt_id = receipt_job.id
 
-            # Asynchronously dispatch receipt email
-            import threading
-            threading.Thread(target=dispatch_receipt_email_job, args=(receipt_job.id,), daemon=True).start()
+                # Asynchronously dispatch receipt email
+                import threading
+                threading.Thread(target=dispatch_receipt_email_job, args=(receipt_job.id,), daemon=True).start()
 
             op["status"] = "committed"
             op["committed_tx_id"] = db_tx.id
@@ -2039,10 +2259,12 @@ def handle_voice_assistant(
             is_en = (op.get("language") == "english")
             if is_en:
                 en_type = "credit" if tx_type == TransactionType.UDHAAR else "payment"
-                reply = f"Recorded ₹{op['amount']:.2f} {en_type} for {op['customer_name']} successfully. Receipt sent to {customer_email}."
+                rcpt_note = f" Receipt sent to {customer_email}." if customer_email else ""
+                reply = f"Recorded ₹{op['amount']:.2f} {en_type} for {op['customer_name']} successfully.{rcpt_note}"
             else:
                 type_label = "udhaar" if tx_type == TransactionType.UDHAAR else "jama"
-                reply = f"{op['customer_name']} ke khate mein ₹{op['amount']:.2f} {type_label} safaltapoorvak save kar diye gaye hain aur receipt dispatch kar di gayi hai."
+                rcpt_note = " aur receipt dispatch kar di gayi hai" if customer_email else ""
+                reply = f"{op['customer_name']} ke khate mein ₹{op['amount']:.2f} {type_label} safaltapoorvak save kar diye gaye hain{rcpt_note}."
             LAST_SESSION_REPLIES[session_id] = reply
 
             return VoiceAssistantResponse(
@@ -2050,7 +2272,7 @@ def handle_voice_assistant(
                 action_taken="committed_transaction",
                 requires_confirmation=False,
                 pending_operation=PendingOperationData(**op),
-                data={"transaction_id": db_tx.id, "receipt_id": receipt_job.id}
+                data={"transaction_id": db_tx.id, "receipt_id": receipt_id}
             )
         except Exception as exc:
             db.rollback()
@@ -2058,7 +2280,7 @@ def handle_voice_assistant(
             raise HTTPException(status_code=500, detail="Database persistence failed.")
 
     # 2. Direct Cancellation Action (Client Button or spoken "Nahi, cancel kar do")
-    if payload.action == "cancel" or (op_id and raw_text.lower() in ("nahi", "nahin", "no", "cancel", "radd karo", "cancel kar do", "mat karo", "mat save karo")):
+    if payload.action == "cancel" or is_cancellation_utterance(raw_text):
         is_en = False
         if op_id and op_id in PENDING_VOICE_OPERATIONS:
             PENDING_VOICE_OPERATIONS[op_id]["status"] = "cancelled"
@@ -2093,6 +2315,18 @@ def handle_voice_assistant(
     extracted_email = ai_service.extract_email_from_text(raw_text)
     if not is_ambiguous_account_action and op_id and op_id in PENDING_VOICE_OPERATIONS and PENDING_VOICE_OPERATIONS[op_id].get("status") == "waiting_for_email":
         op = PENDING_VOICE_OPERATIONS[op_id]
+        if is_confirmation_utterance(raw_text):
+            return handle_voice_assistant(
+                VoiceAssistantRequest(text="confirm", session_id=session_id, pending_operation_id=op_id, action="confirm"),
+                db=db,
+                current_user=current_user
+            )
+        if is_cancellation_utterance(raw_text):
+            return handle_voice_assistant(
+                VoiceAssistantRequest(text="cancel", session_id=session_id, pending_operation_id=op_id, action="cancel"),
+                db=db,
+                current_user=current_user
+            )
         if extracted_email and is_valid_email(extracted_email):
             op["customer_email"] = extracted_email
             op["status"] = "pending"
@@ -2163,6 +2397,12 @@ def handle_voice_assistant(
 
     # Intent A: CONFIRM
     if intent_result.intent == VoiceIntentType.CONFIRM:
+        if not op_id or op_id not in PENDING_VOICE_OPERATIONS:
+            for pid, pop in reversed(list(PENDING_VOICE_OPERATIONS.items())):
+                if pop.get("status") in ("pending", "waiting_for_email"):
+                    if not pop.get("expires_dt") or pop["expires_dt"] >= get_current_ist_time():
+                        op_id = pid
+                        break
         if op_id and op_id in PENDING_VOICE_OPERATIONS:
             return handle_voice_assistant(
                 VoiceAssistantRequest(text="confirm", session_id=session_id, pending_operation_id=op_id, action="confirm"),

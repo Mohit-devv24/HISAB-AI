@@ -68,6 +68,8 @@ def init_db(target_engine=None):
                 conn.execute(text("ALTER TABLE transactions ADD COLUMN customer_email VARCHAR(120)"))
             if existing_columns and "notes" not in existing_columns:
                 conn.execute(text("ALTER TABLE transactions ADD COLUMN notes VARCHAR(255)"))
+            if existing_columns and "description" not in existing_columns:
+                conn.execute(text("ALTER TABLE transactions ADD COLUMN description VARCHAR(255)"))
 
             # 2. Users table migration for Google OAuth, Owner Profile & Roles & Settings
             user_result = inspect(conn).get_columns("users")
