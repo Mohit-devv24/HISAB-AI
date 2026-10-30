@@ -184,7 +184,7 @@ def generate_receipt_pdf(
     if owner_name:
         pdf.draw_text(f"Issued by: {owner_name}", 30, 75, font_size=9, bold=True, color=(0.3, 0.3, 0.3))
     pdf.draw_text("Generated via HisabAI - Smart Khata for Indian Retailers", 30, 50, font_size=8, bold=False, color=(0.6, 0.6, 0.6))
-    pdf.draw_text("www.hisabai.local", 290, 50, font_size=8, bold=False, color=(0.6, 0.6, 0.6))
+    pdf.draw_text("www.hisabai.local", 290, 50, font_size=10, bold=False, color=(0.6, 0.6, 0.6))
 
     return pdf.build()
 
@@ -218,16 +218,16 @@ def generate_statement_pdf(
     # Summary Cards
     pdf.draw_rect(50, 625, 155, 55, fill_color=(0.98, 0.93, 0.93), stroke_color=(0.85, 0.7, 0.7))
     pdf.draw_text("TOTAL UDHAAR (CREDIT)", 60, 663, font_size=8, bold=True, color=(0.6, 0.2, 0.2))
-    pdf.draw_text(f"Rs. {lifetime_udhaar:,.2f}", 60, 640, font_size=13, bold=True, color=(0.7, 0.1, 0.1))
+    pdf.draw_text(f"Rs. {lifetime_udhaar:,.2f}", 60, 640, font_size=12, bold=True, color=(0.7, 0.1, 0.1))
 
     pdf.draw_rect(220, 625, 155, 55, fill_color=(0.93, 0.98, 0.94), stroke_color=(0.7, 0.85, 0.7))
     pdf.draw_text("TOTAL JAMA (PAID)", 230, 663, font_size=8, bold=True, color=(0.2, 0.5, 0.2))
-    pdf.draw_text(f"Rs. {lifetime_jama:,.2f}", 230, 640, font_size=13, bold=True, color=(0.1, 0.5, 0.2))
+    pdf.draw_text(f"Rs. {lifetime_jama:,.2f}", 230, 640, font_size=12, bold=True, color=(0.1, 0.5, 0.2))
 
     pdf.draw_rect(390, 625, 155, 55, fill_color=(0.95, 0.95, 0.98), stroke_color=(0.7, 0.7, 0.85))
     pdf.draw_text("NET OUTSTANDING BAKI", 400, 663, font_size=8, bold=True, color=(0.2, 0.2, 0.5))
     bal_col = (0.7, 0.1, 0.1) if current_balance > 0 else (0.1, 0.5, 0.2)
-    pdf.draw_text(f"Rs. {current_balance:,.2f}", 400, 640, font_size=13, bold=True, color=bal_col)
+    pdf.draw_text(f"Rs. {current_balance:,.2f}", 400, 640, font_size=12, bold=True, color=bal_col)
 
     # Table Header
     pdf.draw_rect(50, 580, 495, 25, fill_color=(0.9, 0.92, 0.95))
