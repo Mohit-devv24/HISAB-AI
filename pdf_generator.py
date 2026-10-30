@@ -145,7 +145,7 @@ def generate_receipt_pdf(
     # Customer Details box
     pdf.draw_rect(30, 385, 340, 50, fill_color=(1, 1, 1), stroke_color=(0.9, 0.9, 0.9))
     pdf.draw_text("CUSTOMER / GRAHAK:", 40, 420, font_size=8, bold=True, color=(0.5, 0.5, 0.5))
-    pdf.draw_text(customer_name, 40, 400, font_size=13, bold=True, color=(0.1, 0.1, 0.1))
+    pdf.draw_text(customer_name, 40, 400, font_size=14, bold=True, color=(0.1, 0.1, 0.1))
 
     # Amount Highlight Card
     amt_bg = (0.92, 0.98, 0.94) if is_jama else (0.99, 0.93, 0.93)
