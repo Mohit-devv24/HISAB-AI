@@ -23,7 +23,7 @@ Small shopkeepers across India lose significant revenue and hours of productivit
 
 ---
 
-## 2. 🛠️ Work Done on the Day V/S Pre-Existing Work
+## 🛠️ 2. Work Done on the Day V/S Pre-Existing Work
 * **Pre-Existing Baseline (Prior to 10:00 AM):**
   * Core architecture, UI interface, CSS animations, initial backend endpoints, and baseline database models.
 * **Built & Refined During Hackathon (Post 10:00 AM):**
@@ -33,7 +33,7 @@ Small shopkeepers across India lose significant revenue and hours of productivit
 
 ---
 
-## 3. 📚 Third-Party Libraries, APIs & Starter Templates Credits
+## 📚 3. Third-Party Libraries, APIs & Starter Templates Credits
 * **External APIs:**
   * **Google Gemini API / Gemma** (`google-genai` SDK) — Intent classification, entity extraction, and structured parsing.
   * **Reddit API** — Supplementary trend/sentiment analysis and community data integration.
@@ -46,7 +46,7 @@ Small shopkeepers across India lose significant revenue and hours of productivit
 
 ---
 
-## 4. 🤖 AI Coding Assistants Used
+## 🤖 4. AI Coding Assistants Used
 * **Anti-Gravity** — Workflow automation, debugging assistance, and prompt engineering.
 * **Google Gemini** — Logic ideation, test case generation, and schema typing.
 * **OpenAI ChatGPT** — Regex optimization, Hindi number word mapping, and documentation drafting.
@@ -54,7 +54,7 @@ Small shopkeepers across India lose significant revenue and hours of productivit
 
 ---
 
-## 5. 🎥 Demo Deliverables & Visual Proof
+## 🎥 5. Demo Deliverables & Visual Proof
 
 * **2-Minute Demo Video:** [Click Here to Watch Video Recording / Add Your Drive or YouTube Link Here](#)
 * **Application Screenshots:**
