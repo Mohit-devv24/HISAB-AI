@@ -1,32 +1,72 @@
 # 📖 Hisab AI — AI Powered Digital Khata (Suno Hisab)
 
-> **Production-Ready, Hackathon-Demo-Ready AI Digital Ledger** designed specifically for millions of local Indian shopkeepers (*kirana store owners, merchants, and small businesses*). 
-> Activate hands-free by saying **"Suno Hisab"**, speak natural Hindi/Hinglish commands, query customer balances and daily summaries, review financial transactions before committing, and hear spoken responses with zero acoustic feedback.
+> **Production-Ready, Hackathon AI Powered Digital Ledger** designed specifically for millions of local Indian shopkeepers (*kirana store owners, merchants, and small businesses*). 
+> Activate hands-free by saying **"Suno Hisab"**, speak natural Hindi/Hinglish/English commands, query customer balances and daily summaries, review financial transactions before committing, and hear spoken responses with zero acoustic feedback.
 
 ---
 
-## 🎯 1. Project Pitch & Problem Statement
+## 🎯 1. Product & Problem Statement
 
 Small shopkeepers across India lose significant revenue and hours of productivity managing physical paper notebooks (*bahi-khata*). These notebooks get torn, stained, misplaced, or damaged. Furthermore, mental arithmetic and binary floating-point calculations cause tally errors, disputes, and delayed credit collections.
 
 **HisabAI** bridges this literacy and technology gap with a **Zero-Friction, Hands-Free Voice Khata**:
 - **"Suno Hisab" Wake Word & Voice Activation**: Say *"Suno Hisab"* to wake up the ledger assistant with a pleasant two-tone audio chime (587.33Hz D5 → 880Hz A5 synthesized via Web Audio API).
-- **Natural Spoken Hindi & Hinglish**: Understands natural conversational phrasing:
+- **Natural Spoken Hindi, Hinglish & English**: Understands natural conversational phrasing:
   - *"Suno Hisab, Sharma ji ka 200 rupaye udhaar likh do"*
-  - *"Raju ne 500 jama kiye"*
+  - *"Debit 1000 form Raju Account"*
   - *"Sharma ji ka kitna baaki hai?"*
-  - *"Aaj ka hisab batao"*
-  - *"Kis kis ka udhaar bacha hai?"*
 - **Two-Step Financial Write Safety (Prepare → Confirm)**: Financial entries are never written directly to the database on raw voice recognition. The assistant prepares a pending operation, reads back the customer name, amount, and type, and waits for explicit user confirmation (*"Haan, save kar do"* or *"Nahi, cancel"*).
 - **Duplicate Protection (Idempotent Writes)**: If a user repeats *"Haan"* or *"Confirm"*, the assistant returns the already-committed record without duplicating database rows.
 - **Authoritative Database-Driven Queries**: Financial balances and summaries are **never** calculated by an LLM hallucination. The backend computes exact totals directly from SQL records using integer paise.
 - **Acoustic Feedback Gating**: When the assistant speaks its response via SpeechSynthesis, browser microphone recognition is automatically muted to prevent acoustic feedback loops.
 - **Exact Integer-Paise Precision**: Stored as integer paise (`amount_paise`) in SQLite (`1 Rupee = 100 Paise`), completely eliminating IEEE 754 binary floating-point accumulation drift.
-- **IST Business Day Boundaries**: Timezone-aware filtering strictly respects Indian Standard Time (`Asia/Kolkata`), accurately attributing transactions around midnight.
 
 ---
 
-## 💻 2. Tech Stack
+## 2. 🛠️ Work Done on the Day V/S Pre-Existing Work
+* **Pre-Existing Baseline (Prior to 10:00 AM):**
+  * Core architecture, UI interface, CSS animations, initial backend endpoints, and baseline database models.
+* **Built & Refined During Hackathon (Post 10:00 AM):**
+  * **Bug Fixes & Error Handling:** Resolved edge cases in audio parsing, state transitions, and database session handling.
+  * **Test Suite Expansion & Verification:** Debugged and validated the automated test suite across all test scenarios.
+  * **Live Feedback Stabilization:** Fine-tuned browser speech recognition gating during Text-to-Speech synthesis to completely eliminate acoustic looping.
+
+---
+
+## 3. 📚 Third-Party Libraries, APIs & Starter Templates Credits
+* **External APIs:**
+  * **Google Gemini API / Gemma** (`google-genai` SDK) — Intent classification, entity extraction, and structured parsing.
+  * **Reddit API** — Supplementary trend/sentiment analysis and community data integration.
+* **Core Frameworks & Libraries:**
+  * **Backend:** FastAPI, Uvicorn, SQLAlchemy 2.x, Pydantic v2, Python `zoneinfo`.
+  * **Browser Web APIs:** Native Web Speech API (`SpeechRecognition`, `SpeechSynthesis`), Web Audio API (`AudioContext`, `OscillatorNode`).
+  * **Testing:** Pytest, HTTPX `TestClient`.
+* **Starter Templates & Assets:**
+  * Base layout boilerplate and responsive UI starter scaffolding adapted and extended for the Khata theme.
+
+---
+
+## 4. 🤖 AI Coding Assistants Used
+* **Anti-Gravity** — Workflow automation, debugging assistance, and prompt engineering.
+* **Google Gemini** — Logic ideation, test case generation, and schema typing.
+* **OpenAI ChatGPT** — Regex optimization, Hindi number word mapping, and documentation drafting.
+* **GitHub Copilot** — In-line code completion and boilerplate generation.
+
+---
+
+## 5. 🎥 Demo Deliverables & Visual Proof
+
+* **2-Minute Demo Video:** [Click Here to Watch Video Recording / Add Your Drive or YouTube Link Here](#)
+* **Application Screenshots:**
+
+| 1. Voice Wake & Listening State | 2. Daily Summary & Ledger Dashboard |
+
+| :---: | :---: | :---: |
+ | ![Screenshot 1](path/to/screenshot1.png) | ![Screenshot 3](path/to/screenshot3.png) |
+
+---
+
+## 💻 6. Tech Stack
 
 | Layer | Technology | Purpose |
 | :--- | :--- | :--- |
