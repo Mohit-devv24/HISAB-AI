@@ -1,0 +1,1 @@
+from email_service import send_transaction_receipt_email
