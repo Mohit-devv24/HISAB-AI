@@ -167,7 +167,10 @@ def get_configured_api_key() -> Optional[str]:
 
 
 def is_ai_configured() -> bool:
-    """Returns True if a valid API key is present in environment."""
+    """Returns True if a valid API key (Groq or Google GenAI) is present in environment."""
+    groq_key = os.getenv("GROQ_API_KEY", "").strip()
+    if groq_key and len(groq_key) > 8 and not groq_key.startswith("your_"):
+        return True
     key = get_configured_api_key()
     return bool(key and len(key) > 8 and not key.startswith("your_"))
 
@@ -831,6 +834,55 @@ def fast_match_voice_intent(raw_text: str) -> Optional[VoiceIntentResult]:
 
 
 # ==========================================
+# Groq High-Speed Inference Engine
+# ==========================================
+
+GROQ_CHAT_MODELS = [
+    "openai/gpt-oss-20b",
+    "qwen/qwen3.8-27b",
+    "openai/gpt-oss-120b",
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant"
+]
+
+def query_groq_json(user_prompt: str, system_prompt: str) -> Optional[dict]:
+    """
+    Directly queries Groq API for ultra-low latency (<200ms) structured JSON extraction.
+    Tries fast candidate models supported on the active Groq account.
+    """
+    groq_key = os.environ.get("GROQ_API_KEY", "").strip()
+    if not groq_key or len(groq_key) < 8 or groq_key.startswith("your_"):
+        return None
+    try:
+        from groq import Groq
+        client = Groq(api_key=groq_key, timeout=3.0)
+        for model_name in GROQ_CHAT_MODELS:
+            try:
+                resp = client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    response_format={"type": "json_object"},
+                    temperature=0.0
+                )
+                if resp and resp.choices and resp.choices[0].message and resp.choices[0].message.content:
+                    raw_content = resp.choices[0].message.content.strip()
+                    cleaned = strip_markdown_fences(raw_content)
+                    data = json.loads(cleaned)
+                    if isinstance(data, dict):
+                        logger.info(f"Groq ({model_name}) extraction successful: {str(data)[:100]}")
+                        return data
+            except Exception as model_err:
+                logger.warning(f"Groq model {model_name} failed: {redact_secrets(str(model_err))}")
+                continue
+    except Exception as exc:
+        logger.warning(f"Groq initialization/query failed: {redact_secrets(str(exc))}")
+    return None
+
+
+# ==========================================
 # Core AI Parsing Functions
 # ==========================================
 
@@ -844,11 +896,32 @@ def parse_hinglish_input(user_text: str) -> ExtractedTransaction:
         raise AIAmbiguityError("Transaction input phrase cannot be empty or too short.")
 
     api_key = get_configured_api_key()
-    if not api_key or not is_ai_configured():
+    groq_key = os.environ.get("GROQ_API_KEY", "").strip()
+    if not (api_key or groq_key) or not is_ai_configured():
         raise AIConfigurationError(
             "GEMMA_API_KEY is not configured or contains placeholder text. "
             "Please add a valid Google AI Studio key to your .env file."
         )
+
+    # Normalize spoken numbers
+    processed_text = normalize_hindi_number_words(sanitized_text)
+
+    full_prompt = (
+        f"{SYSTEM_INSTRUCTION}\n\n"
+        f"Transaction command: \"{processed_text}\"\n"
+        f"Return ONLY the JSON object:"
+    )
+
+    # Primary: Try ultra-fast Groq extraction first if configured
+    if groq_key:
+        groq_dict = query_groq_json(full_prompt, SYSTEM_INSTRUCTION)
+        if groq_dict and isinstance(groq_dict, dict):
+            if "error" not in groq_dict and groq_dict.get("customer_name") and groq_dict.get("amount"):
+                try:
+                    validated = ExtractedTransaction.model_validate(groq_dict)
+                    return validated
+                except Exception:
+                    pass
 
     try:
         from google import genai
@@ -986,7 +1059,17 @@ def parse_hinglish_voice(transcript: str, context: Optional[dict] = None) -> dic
     except Exception:
         pass
 
-    # 2. Gemma 4 LLM Generation via google-genai
+    # 2. Primary: Groq Fast LLM Extraction (<200ms latency)
+    groq_res = query_groq_json(prompt, system_instruction)
+    if groq_res and isinstance(groq_res, dict):
+        groq_res.setdefault("intent", "UNKNOWN")
+        groq_res.setdefault("customer_name", None)
+        groq_res.setdefault("amount", None)
+        groq_res.setdefault("transaction_type", None)
+        groq_res.setdefault("description", "")
+        return groq_res
+
+    # 3. Secondary: Gemma 4 LLM Generation via google-genai
     try:
         from google import genai
         from google.genai import types
@@ -1109,28 +1192,34 @@ def classify_voice_command(user_text: str, context: Optional[dict] = None) -> Vo
     raw_response_text: Optional[str] = None
     last_exception: Optional[Exception] = None
 
-    for candidate in models_to_try:
-        try:
-            logger.info(f"Classifying voice intent using model: {candidate}")
-            config = types.GenerateContentConfig(
-                response_mime_type="application/json",
-                temperature=0.0,
-            )
+    # Primary: Groq Fast Voice Intent Classification (<200ms latency)
+    groq_data = query_groq_json(full_prompt, VOICE_INTENT_SYSTEM_PROMPT)
+    if groq_data and isinstance(groq_data, dict):
+        raw_response_text = json.dumps(groq_data)
 
-            response = client.models.generate_content(
-                model=candidate,
-                contents=full_prompt,
-                config=config,
-            )
+    if not raw_response_text:
+        for candidate in models_to_try:
+            try:
+                logger.info(f"Classifying voice intent using model: {candidate}")
+                config = types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0.0,
+                )
 
-            if response and response.text and response.text.strip():
-                raw_response_text = response.text
-                break
-        except Exception as exc:
-            sanitized_err = redact_secrets(str(exc))
-            logger.warning(f"Voice intent model {candidate} failed: {sanitized_err}")
-            last_exception = exc
-            continue
+                response = client.models.generate_content(
+                    model=candidate,
+                    contents=full_prompt,
+                    config=config,
+                )
+
+                if response and response.text and response.text.strip():
+                    raw_response_text = response.text
+                    break
+            except Exception as exc:
+                sanitized_err = redact_secrets(str(exc))
+                logger.warning(f"Voice intent model {candidate} failed: {sanitized_err}")
+                last_exception = exc
+                continue
 
     if not raw_response_text:
         logger.warning(f"All GenAI models failed for voice intent, using heuristic fallback: {last_exception}")
