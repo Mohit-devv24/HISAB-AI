@@ -3564,8 +3564,8 @@
           </div>
 
           <div class="ai-health-badge" id="aiHealthBadge">
-            <span>🟢</span>
-            <span id="aiModelText" class="hidden sm:inline">Gemma 2.5 Active</span>
+            <span>⚡</span>
+            <span id="aiModelText" class="hidden sm:inline">Groq AI Active</span>
           </div>
 
           <!-- Refresh & Sync Button -->
@@ -3615,7 +3615,7 @@
                 <span style="font-size: 1.4rem;">🧠</span>
                 <div>
                   <h3 style="font-size: 1.05rem; font-weight: 800; color: #0F172A; margin: 0;">AI Daily Business Summary & Vyapar Salah</h3>
-                  <div style="font-size: 0.78rem; color: #64748B;">Authoritative daily accounting metrics + Gemma AI intelligence</div>
+                  <div style="font-size: 0.78rem; color: #64748B;">Authoritative daily accounting metrics + Groq AI intelligence</div>
                 </div>
               </div>
               <div style="display: flex; align-items: center; gap: 8px;">
@@ -6303,7 +6303,7 @@
     async function fetchDailySummaryData(targetDate) {
       const textBox = document.getElementById('aiSummaryTextContent');
       const topCustTag = document.getElementById('aiSummaryTopCustomerTag');
-      if (textBox) textBox.textContent = "Analyzing today's ledger with Gemma AI...";
+      if (textBox) textBox.textContent = "Analyzing today's ledger with Groq AI...";
 
       let url = '/api/analytics/daily-summary?generate_ai=true';
       if (targetDate) url += `&date=${targetDate}`;
@@ -7467,7 +7467,7 @@
         case FSM_STATES.PROCESSING:
           bDot.textContent = '🟣';
           bText.textContent = 'AI PROCESSING';
-          caption.textContent = 'Assistant is processing with Gemma AI...';
+          caption.textContent = 'Assistant is processing with Groq AI...';
           setElectricVisualState('PROCESSING');
           break;
         case FSM_STATES.AWAITING_CONFIRMATION:
@@ -7909,7 +7909,7 @@
         const aiText = document.getElementById('aiModelText');
         const settingsAi = document.getElementById('settingsAiEngine');
         if (data.ai_configured) {
-          if (aiText) aiText.textContent = data.ai_model || 'Gemma Active';
+          if (aiText) aiText.textContent = data.ai_model || 'Groq AI Active';
           if (settingsAi) settingsAi.textContent = `${data.ai_model} (Online)`;
         } else {
           if (aiText) aiText.textContent = 'Manual Mode';

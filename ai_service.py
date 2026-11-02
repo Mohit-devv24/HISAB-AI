@@ -177,6 +177,8 @@ def is_ai_configured() -> bool:
 
 def get_active_model_name() -> str:
     """Returns the effective primary model name configured for the app."""
+    if os.getenv("GROQ_API_KEY", "").strip():
+        return "Groq AI (LPU Active)"
     raw_model = os.getenv("GEMMA_MODEL", "gemma-4-26b-a4b-it").strip()
     return LEGACY_MODEL_MAP.get(raw_model, raw_model)
 
