@@ -1,9 +1,7 @@
 import axios from 'axios';
 import { Transaction, VoiceAssistantResponse, DailySummary, ShopkeeperProfile } from '../types';
 
-const isBrowser = typeof window !== 'undefined';
-// In the browser, use relative URL so Next.js rewrites forward to FastAPI without CORS issues
-const API_BASE = isBrowser ? '' : (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8000');
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8000';
 
 const client = axios.create({
   baseURL: API_BASE,
